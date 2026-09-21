@@ -1,0 +1,144 @@
+[
+  {
+    "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P0", "task": null,
+    "type": "project.registered", "actor": {"kind": "human", "name": "PM"},
+    "summary": "案件 approval-workflow（申請承認ワークフロー）を Hub に登録した",
+    "payload": {"project": "approval-workflow"},
+    "basis": "当時 Hub は存在しない。初版のコミット（7159a94）の時点で案件が始まっていたものとして置いた"
+  },
+  {
+    "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P0", "task": null,
+    "type": "process.pinned", "actor": {"kind": "system", "role": "automation"},
+    "summary": "この案件が従うプロセス定義を process-v0.1.0 に固定した",
+    "payload": {"version": "process-v0.1.0"},
+    "basis": "プロセス定義（J-SIX process/jsix-process.yaml）は 2026-09-22 に作成した。当時の工程を同じ定義で表示するため、案件の開始時に固定したものとして置いた"
+  },
+  {
+    "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P0", "task": null,
+    "type": "constitution.pinned", "actor": {"kind": "system", "role": "automation"},
+    "summary": "以降のタスクに渡す憲法（CLAUDE.md）の版を固定した",
+    "payload": {"commit": "7159a94", "path": "CLAUDE.md"},
+    "basis": "CLAUDE.md は初版のコミット（7159a94）に含まれている（実測）。Hub がその版を固定する操作は当時存在しない"
+  },
+  {
+    "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P2", "task": null,
+    "type": "gate.approved", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "設計レビューを承認した",
+    "payload": {"gate": "design_review"},
+    "basis": "初版の Design Spec には承認欄が無く、承認の記録は無い。ケーススタディ #1（J-SIX docs/case-study-01.md）で P2 を終えて実装に進んでいることから、承認があったものとして置いた"
+  },
+  {
+    "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P3", "task": null,
+    "type": "gate.approved", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "タスク分解を承認した",
+    "payload": {"gate": "task_approval"},
+    "basis": "ケーススタディ #1 では P3 を「要件をテスト単位に分解（REQ ⇔ test）」とし、成果物もタスク ID も残っていない。承認があったものとして置いた"
+  },
+  {
+    "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P4", "task": null,
+    "type": "task.dispatched", "actor": {"kind": "system", "role": "automation"},
+    "summary": "初版の実装タスクを AI に投入した（タスク ID の記録なし）",
+    "payload": {"note": "初版は品質ゲート G1〜G4（J-SIX v2.1）より前のため、ゲートの判定記録は無い"},
+    "basis": "Hub によるタスク投入は当時存在しない。初版のコードとテストは 7159a94 に含まれている（実測）"
+  },
+  {
+    "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P5", "task": null,
+    "type": "gate.approved", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "品質基準達成判定を承認した",
+    "payload": {"gate": "quality_acceptance"},
+    "basis": "ケーススタディ #1 でカバレッジ 99% を実測し品質ゲート（95%）を満たしたと記録している。承認そのものの記録は無い"
+  },
+  {
+    "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P6", "task": null,
+    "type": "gate.approved", "actor": {"kind": "human", "role": "customer"},
+    "summary": "納品物レビューを承認した",
+    "payload": {"gate": "deliverable_review"},
+    "basis": "ケーススタディ #1 は IF 設計書（OpenAPI）の逆生成までを扱っている。顧客はサンプルで実在せず、承認の記録も無い"
+  },
+
+  {
+    "timestamp": "2026-09-19T03:51:53Z", "iteration": "2026-09 変更対応", "phase": "P2", "task": null,
+    "type": "deviation.opened", "actor": {"kind": "system", "role": "automation"},
+    "summary": "Stop hook の連続ブロックが上限に近づいたため、人間にエスカレーションした",
+    "payload": {"deviation": "escalation", "condition": "stop_hook_limit"},
+    "basis": "J-SIX.md Phase 4 は連続ブロックの6回目で人間に通知するとしている。この時刻は design-review の実行で6回目のブロックが起きた時刻（セッション記録から実測）。実際には通知されず、ブロックは28回続いた（Plugin の不具合 #2。J-SIX docs/plugin-field-test-01.md §3）"
+  },
+  {
+    "timestamp": "2026-09-19T03:53:37Z", "iteration": "2026-09 変更対応", "phase": "P2", "task": null,
+    "type": "deviation.opened", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "設計レビューで Critical 2件が見つかったため、要求 Spec（P1）に戻した",
+    "payload": {"deviation": "phase_rollback", "to_phase": "P1",
+                "reason": "状態遷移 API が不在の申請に 404 ではなく 409 を返す／note を受け付けて捨てる"},
+    "basis": "design-review の結果（J-SIX examples/approval-workflow/docs/reviews/design-review-2026-09-19.md）を受けて spec-create で Spec を改訂した事実は記録にある。これを Hub 上の Phase 逆戻りとして扱うのは再構成"
+  },
+  {
+    "timestamp": "2026-09-19T04:01:39Z", "iteration": "2026-09 変更対応", "phase": "P2", "task": null,
+    "type": "deviation.closed", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "エスカレーションに対応した（Stop hook を修正）",
+    "payload": {"deviation": "escalation", "resolution": "prompt 型 Hook の書き方を修正した"},
+    "basis": "Plugin の不具合 #2 は design-review の実行で見つかり修正された（plugin-field-test-01 §3）。次の spec-create の実行では prompt 型 Hook のブロックが起きていない（セッション記録）ことから、その間に修正されたものとして置いた"
+  },
+  {
+    "timestamp": "2026-09-19T04:05:39Z", "iteration": "2026-09 変更対応", "phase": "P1", "task": null,
+    "type": "deviation.opened", "actor": {"kind": "system", "role": "automation"},
+    "summary": "同じゲート失敗でブロックが続いたため、人間にエスカレーションした",
+    "payload": {"deviation": "escalation", "condition": "stop_hook_limit"},
+    "basis": "spec-create の実行で6回目のブロックが起きた時刻（セッション記録から実測）。REQ-011/012・PROP-007〜009 を追加した直後で、テストは P4 で書くため、この工程では満たせない失敗だった。ブロックは15回続いた（Plugin の不具合 #5）"
+  },
+  {
+    "timestamp": "2026-09-19T04:07:40Z", "iteration": "2026-09 変更対応", "phase": "P1", "task": null,
+    "type": "gate.approved", "actor": {"kind": "human", "role": "customer"},
+    "summary": "改訂した要求 Spec を人間が承認した（AI が書き込んだ承認は無効として扱う）",
+    "payload": {"gate": "customer_approval", "replaces": "AI が記入した承認"},
+    "basis": "記録上の承認（2026-09-19 ✅）は spec-create の実行で AI が書き込んだもの（307d382、実測）。プロセス定義では承認者は人間の役割に限られるため、Hub はこれを受け付けない。人間の承認の記録は無く、承認があったものとして置いた"
+  },
+  {
+    "timestamp": "2026-09-19T04:07:50Z", "iteration": "2026-09 変更対応", "phase": "P2", "task": null,
+    "type": "gate.approved", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "改訂した Design Spec と ADR-0003 を人間が承認した（AI が書き込んだ承認は無効として扱う）",
+    "payload": {"gate": "design_review", "replaces": "AI が記入した承認"},
+    "basis": "Design Spec の承認欄は spec-create の実行で AI が追加し ✅ を付けた（307d382、実測）。人間の承認の記録は無い"
+  },
+  {
+    "timestamp": "2026-09-19T04:08:00Z", "iteration": "2026-09 変更対応", "phase": "P2", "task": null,
+    "type": "deviation.closed", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "Phase 逆戻りを回収した（P1・P2 を再承認）",
+    "payload": {"deviation": "phase_rollback"},
+    "basis": "上の再承認をもって回収としたもの"
+  },
+  {
+    "timestamp": "2026-09-19T04:09:03Z", "iteration": "2026-09 変更対応", "phase": "P1", "task": null,
+    "type": "deviation.closed", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "エスカレーションに対応した（同じ失敗が3回続いたら停止を許可する）",
+    "payload": {"deviation": "escalation", "resolution": "工程上いま満たせない失敗では、判定を緩めずに停止を許可する"},
+    "basis": "Plugin の修正コミット e1393a2（2026-09-19T04:09:02Z、PR #5）の直後に置いた"
+  },
+  {
+    "timestamp": "2026-09-19T04:09:10Z", "iteration": "2026-09 変更対応", "phase": "P3", "task": "TASK-AW-002",
+    "type": "gate.approved", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "TASK-AW-002 のタスク定義と変更許可範囲を承認した",
+    "payload": {"gate": "task_approval"},
+    "basis": "当時タスク定義はリポジトリに保存されていなかった（J-SIX ROADMAP C10）。人が判断すべき事項（不在の申請は 404 等）はプロンプトで「合意済み」として渡した（plugin-field-test-01 §1）。これを承認として置いた"
+  },
+  {
+    "timestamp": "2026-09-19T04:09:20Z", "iteration": "2026-09 変更対応", "phase": "P4", "task": "TASK-AW-002",
+    "type": "task.dispatched", "actor": {"kind": "system", "role": "automation"},
+    "summary": "TASK-AW-002 を AI に投入した（Spec・憲法の版・変更許可範囲を添えて）",
+    "payload": {"constitution": "7159a94:CLAUDE.md", "process": "process-v0.1.0"},
+    "basis": "実際には著者が tdd-cycle をヘッドレスで起動した（04:09:25 開始、セッション記録）。Hub による投入として置いた"
+  },
+  {
+    "timestamp": "2026-09-19T04:45:30Z", "iteration": "2026-09 変更対応", "phase": "P5", "task": null,
+    "type": "gate.approved", "actor": {"kind": "human", "role": "gatekeeper"},
+    "summary": "証跡パッケージをレビューし、品質基準達成判定を承認した",
+    "payload": {"gate": "quality_acceptance"},
+    "basis": "実際の記録では未承認（証跡パッケージの 07_approval.md は未記入。quality-metrics-2026-09-19.md も「未計測」と記録）。一周を示すため承認があったものとして置いた"
+  },
+  {
+    "timestamp": "2026-09-19T05:07:00Z", "iteration": "2026-09 変更対応", "phase": "P6", "task": null,
+    "type": "gate.approved", "actor": {"kind": "human", "role": "customer"},
+    "summary": "逆生成した納品物をレビューし、承認した",
+    "payload": {"gate": "deliverable_review"},
+    "basis": "実際の記録では未承認（design-docs/quality-report.md に「未承認」と記録）。顧客はサンプルで実在しない。一周を示すため承認があったものとして置いた"
+  }
+]

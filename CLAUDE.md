@@ -37,7 +37,12 @@
 ## ビルド・テスト・実行コマンド
 
 ```bash
-# [未決: 技術スタックの ADR 確定後に記入]
+# リプレイ用データの抽出スクリプト（Python 3.9 以上・標準ライブラリのみ。docs/adr/0001）
+python3 -m pip install jsonschema pytest     # テスト用
+python3 -m pytest tools/tests -q              # 抽出スクリプトとデータの検査
+python3 tools/extract_events.py --jsix-repo ../j-six --sessions <セッション記録のディレクトリ>   # 再生成（著者の手元のみ）
+
+# Web アプリ: [未決: 技術スタックの ADR 確定後に記入]
 ```
 
 > **重要**: テストは必ず実行して通ることを確認してからコミットすること。
@@ -91,7 +96,8 @@ J-SIX `docs/control-plane/adr/` の ADR に従う。変更が必要だと考え�
 ├── CLAUDE.md
 ├── README.md
 ├── LICENSE
-├── data/            # リプレイ用イベント（M3）
+├── data/            # リプレイ用イベント（events.jsonl は生成物。直接編集しない）
+├── tools/           # 抽出スクリプトとテスト
 └── docs/
     ├── adr/         # Hub 固有の ADR
     └── specs/       # 要求 Spec / Design Spec（M4）
@@ -135,7 +141,7 @@ J-SIX `docs/control-plane/adr/` の ADR に従う。変更が必要だと考え�
 ## セキュリティ・禁止事項
 
 - 機密情報（API キー等）をソースコードに書かない。`.env` をコミットしない
-- リプレイ用データに、CC セッション記録から個人情報・秘密情報・ローカルの絶対パスを持ち込まない
+- リプレイ用データに、CC セッション記録から個人情報・秘密情報・ローカルの絶対パスを持ち込まない。持ち出してよい項目は docs/adr/0001 に限る
 
 ### 変更禁止ファイル
 
