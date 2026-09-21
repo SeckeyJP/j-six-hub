@@ -167,12 +167,12 @@ main { grid-area: main; overflow: auto; padding: 1rem 1.2rem 2rem; min-width: 0;
 /* --- 案件の画面 --- */
 .project-screen > h2 { font-size: 1.15rem; }
 .fictional-note { background: color-mix(in srgb, var(--fictional) 12%, transparent); border: 1px solid var(--fictional); border-radius: 8px; padding: 0.45rem 0.7rem; font-size: 0.88rem; }
-.pipeline { display: grid; grid-template-columns: repeat(7, minmax(8.5rem, 1fr)); gap: 0.55rem; overflow-x: auto; padding-bottom: 0.4rem; }
+.pipeline { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.6rem; padding-bottom: 0.4rem; }
 .phase-card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.65rem; box-shadow: var(--shadow); }
 .phase-card:not(:last-child)::after { content: "→"; position: absolute; right: -0.55rem; top: 1.1rem; color: var(--muted); font-weight: 700; z-index: 1; }
 .phase-card.status-approved { border-color: var(--ok); }
 .phase-card.status-in_progress { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
-.phase-card h3 { font-size: 0.85rem; }
+.phase-card h3 { font-size: 0.8rem; line-height: 1.35; }
 .phase-card p { margin: 0.25rem 0; font-size: 0.82rem; }
 .status-pill { display: inline-block; font-size: 0.75rem; font-weight: 700; padding: 0.05rem 0.5rem; border-radius: 999px; background: var(--line); color: var(--muted); }
 .status-pill.status-in_progress { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
@@ -205,13 +205,13 @@ tr.warn td { color: var(--danger); }
 .events { list-style: none; padding: 0; margin: 0; }
 .events li { border-bottom: 1px solid var(--line); }
 .events li.control { background: var(--control-bg); border-left: 3px solid var(--danger); }
-.event-row { all: unset; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.4rem; padding: 0.4rem 0.35rem; width: 100%; box-sizing: border-box; font-size: 0.8rem; }
+.event-row { all: unset; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 0.4rem; padding: 0.45rem 0.4rem; width: 100%; box-sizing: border-box; font-size: 0.8rem; }
 .event-row:focus-visible { outline: 2px solid var(--accent); }
 .event-time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .event-row .project-chip { justify-self: start; }
-.event-actor { grid-column: 1; text-align: center; }
-.event-summary { grid-column: 2; }
-.event-badges { grid-column: 2; display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
+.event-actor { margin-left: auto; }
+.event-summary { flex: 1 1 100%; }
+.event-badges { flex: 1 1 100%; display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
 .event-detail { margin: 0 0.4rem 0.5rem 1.6rem; font-size: 0.78rem; }
 .event-detail dt { color: var(--muted); }
 .event-detail dd { margin: 0 0 0.25rem; }
@@ -241,6 +241,6 @@ tr.warn td { color: var(--danger); }
   .sidebar, .timeline { border: none; }
   .playerbar { position: sticky; bottom: 0; }
   .player { grid-template-columns: 1fr; }
-  .pipeline { grid-template-columns: repeat(7, 9rem); }
+  .pipeline { grid-template-columns: repeat(7, 9rem); overflow-x: auto; }
   .board-notes { grid-template-columns: 1fr; }
 }
