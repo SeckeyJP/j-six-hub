@@ -75,3 +75,9 @@ th, td { border-bottom: 1px solid var(--line); padding: 0.3rem 0.4rem; text-alig
   .app { grid-template-columns: 1fr; grid-template-areas: "header" "main" "events" "footer"; }
   .events { position: static; max-height: none; border-left: none; border-top: 1px solid var(--line); }
 }
+.board { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
+.board h3 { font-size: 0.95rem; margin: 0 0 0.3rem; }
+.board p { margin: 0.2rem 0; }
+.phase.status-approved { border-color: var(--measured); }
+.phase.status-in_progress { border-color: var(--accent); }
+.layers { padding-left: 1.1rem; margin: 0.2rem 0; font-size: 0.8rem; }
