@@ -1,0 +1,621 @@
+[
+ {
+  "timestamp": "2026-09-20T01:00:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P0",
+  "task": null,
+  "type": "project.registered",
+  "actor": {
+   "kind": "human",
+   "name": "PM"
+  },
+  "summary": "案件 order-integration（受発注連携）を Hub に登録した。参加はベンダー A・ベンダー B の2社",
+  "payload": {
+   "project": "order-integration"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T01:00:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P0",
+  "task": null,
+  "type": "process.pinned",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "この案件が従うプロセス定義を process-v0.1.0 に固定した",
+  "payload": {
+   "version": "process-v0.1.0"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T01:05:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P0",
+  "task": null,
+  "type": "constitution.pinned",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "2社に共通の憲法（CLAUDE.md）の版を固定した。両社の AI は同じ版で動く",
+  "payload": {
+   "commit": "(架空)",
+   "path": "CLAUDE.md"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T01:40:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P1",
+  "task": null,
+  "type": "commit.created",
+  "actor": {
+   "kind": "human",
+   "name": "ベンダー A"
+  },
+  "summary": "要求 Spec（受注の登録・在庫の引当）をコミットした",
+  "payload": {
+   "artifacts": [
+    "requirement_spec"
+   ]
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T02:00:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P1",
+  "task": null,
+  "type": "gate.approved",
+  "actor": {
+   "kind": "human",
+   "role": "customer"
+  },
+  "summary": "顧客が要求 Spec を承認した",
+  "payload": {
+   "gate": "customer_approval"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T03:00:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P2",
+  "task": null,
+  "type": "commit.created",
+  "actor": {
+   "kind": "human",
+   "name": "ベンダー A"
+  },
+  "summary": "Design Spec と Interface Contract「受注 API v1.0（OpenAPI）」を登録した。契約の所有者はベンダー A、利用者はベンダー B",
+  "payload": {
+   "artifacts": [
+    "design_spec",
+    "interface_contract"
+   ],
+   "contract": "受注 API v1.0",
+   "owner": "ベンダー A",
+   "consumer": "ベンダー B"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T03:30:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P2",
+  "task": null,
+  "type": "gate.approved",
+  "actor": {
+   "kind": "human",
+   "role": "gatekeeper"
+  },
+  "summary": "設計レビューを承認した（Interface Contract を含む）",
+  "payload": {
+   "gate": "design_review"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:00:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P3",
+  "task": null,
+  "type": "commit.created",
+  "actor": {
+   "kind": "human",
+   "name": "PM"
+  },
+  "summary": "タスクを2社に分けて定義した（TASK-OI-001: ベンダー A 受注 API／TASK-OI-002: ベンダー B 在庫連携）",
+  "payload": {
+   "artifacts": [
+    "task_list",
+    "task_definition"
+   ]
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:10:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P3",
+  "task": null,
+  "type": "gate.approved",
+  "actor": {
+   "kind": "human",
+   "role": "gatekeeper"
+  },
+  "summary": "タスク定義と各社の変更許可範囲を承認した",
+  "payload": {
+   "gate": "task_approval"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:20:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "task.dispatched",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "TASK-OI-001 をベンダー A の実行環境に投入した",
+  "payload": {
+   "team": "ベンダー A"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:20:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "task.dispatched",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "TASK-OI-002 をベンダー B の実行環境に投入した",
+  "payload": {
+   "team": "ベンダー B"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:21:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "ai.session.started",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "ベンダー A の AI"
+  },
+  "summary": "ベンダー A の AI が tdd-cycle を開始した",
+  "payload": {
+   "skill": "tdd-cycle"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:22:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "ai.session.started",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "ベンダー B の AI"
+  },
+  "summary": "ベンダー B の AI が tdd-cycle を開始した",
+  "payload": {
+   "skill": "tdd-cycle"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:25:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "ai.agent.started",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "red-agent"
+  },
+  "summary": "ベンダー B: Red（テスト作成）を開始した",
+  "payload": {
+   "agent": "red-agent",
+   "step": "red"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:35:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "ai.agent.started",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "green-agent"
+  },
+  "summary": "ベンダー B: Green（実装）を開始した",
+  "payload": {
+   "agent": "green-agent",
+   "step": "green"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:40:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "gate.evaluated",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "品質ゲートが止めた（未達: interface_contract）。ベンダー B の AI が他社の API 契約を変えようとした",
+  "payload": {
+   "gate": "task_quality_gate",
+   "trigger": "stop_hook",
+   "outcome": "blocked",
+   "results": [
+    {
+     "layer": "G1",
+     "check": "scope",
+     "status": "passed",
+     "summary": "変更 4ファイルはすべて許可範囲内"
+    },
+    {
+     "layer": "G1",
+     "check": "interface_contract",
+     "status": "failed",
+     "summary": "受注 API v1.0 の破壊的変更: /orders の quantity を必須から任意に変更。契約の所有者はベンダー A"
+    }
+   ],
+   "count": 1
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:41:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "deviation.opened",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "Interface Contract 違反を検出し、契約の所有者（ベンダー A）に判断を求めた",
+  "payload": {
+   "deviation": "interface_contract_violation",
+   "contract": "受注 API v1.0"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:45:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "ai.agent.started",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "red-agent"
+  },
+  "summary": "ベンダー A: Red（テスト作成）を開始した",
+  "payload": {
+   "agent": "red-agent",
+   "step": "red"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:55:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "ai.agent.started",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "green-agent"
+  },
+  "summary": "ベンダー A: Green（実装）を開始した",
+  "payload": {
+   "agent": "green-agent",
+   "step": "green"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T05:05:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "gate.evaluated",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "品質ゲートが止めた（未達: tests）。同じ失敗が続いている",
+  "payload": {
+   "gate": "task_quality_gate",
+   "trigger": "stop_hook",
+   "outcome": "blocked",
+   "results": [
+    {
+     "layer": "G2",
+     "check": "tests",
+     "status": "failed",
+     "summary": "3件失敗: 受注日時のタイムゾーン変換"
+    }
+   ],
+   "count": 3
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T05:06:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "deviation.opened",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "テストが3回続けて失敗したため、ベンダー A の担当者にエスカレーションした",
+  "payload": {
+   "deviation": "escalation",
+   "condition": "repeated_test_failure"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T05:30:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "deviation.closed",
+  "actor": {
+   "kind": "human",
+   "role": "contract_owner",
+   "name": "ベンダー A"
+  },
+  "summary": "契約の所有者（ベンダー A）が変更を却下した。ベンダー B は v1.0 の契約どおりに実装する",
+  "payload": {
+   "deviation": "interface_contract_violation",
+   "decision": "却下"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T05:35:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "ai.agent.started",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "green-agent"
+  },
+  "summary": "ベンダー B: 契約どおりに Green をやり直した",
+  "payload": {
+   "agent": "green-agent",
+   "step": "green"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T05:40:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "deviation.opened",
+  "actor": {
+   "kind": "human",
+   "name": "ベンダー A の開発者"
+  },
+  "summary": "中央の実行環境では原因を絞れないため、担当者がローカルの Claude Code で調べることにした（ローカル退避）",
+  "payload": {
+   "deviation": "local_fallback"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T05:50:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "gate.evaluated",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "品質ゲートを通過した（ベンダー B）",
+  "payload": {
+   "gate": "task_quality_gate",
+   "trigger": "stop_hook",
+   "outcome": "passed",
+   "results": [
+    {
+     "layer": "G1",
+     "check": "interface_contract",
+     "status": "passed",
+     "summary": "受注 API v1.0 に適合"
+    },
+    {
+     "layer": "G2",
+     "check": "tests",
+     "status": "passed",
+     "summary": "全 38件 通過"
+    },
+    {
+     "layer": "G3",
+     "check": "judge",
+     "status": "passed",
+     "summary": "PASS"
+    }
+   ],
+   "count": 1
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T06:20:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "commit.created",
+  "actor": {
+   "kind": "human",
+   "name": "ベンダー A の開発者"
+  },
+  "summary": "ローカルで修正した変更を PR として出した（タイムゾーンを UTC に統一）",
+  "payload": {
+   "artifacts": [
+    "code",
+    "tests"
+   ]
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T06:25:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "gate.evaluated",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "ローカルの変更も同じ品質ゲートを通過した（ゲートは省略しない）",
+  "payload": {
+   "gate": "task_quality_gate",
+   "trigger": "ci",
+   "outcome": "passed",
+   "results": [
+    {
+     "layer": "G1",
+     "check": "scope",
+     "status": "passed",
+     "summary": "変更 3ファイルはすべて許可範囲内"
+    },
+    {
+     "layer": "G2",
+     "check": "tests",
+     "status": "passed",
+     "summary": "全 52件 通過"
+    },
+    {
+     "layer": "G3",
+     "check": "judge",
+     "status": "passed",
+     "summary": "PASS"
+    }
+   ],
+   "count": 1
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T06:26:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "deviation.closed",
+  "actor": {
+   "kind": "system",
+   "role": "automation"
+  },
+  "summary": "ローカル退避を終えた（PR がゲートを再通過）",
+  "payload": {
+   "deviation": "local_fallback"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T06:27:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "deviation.closed",
+  "actor": {
+   "kind": "human",
+   "name": "ベンダー A の開発者"
+  },
+  "summary": "エスカレーションを閉じた（原因と対処を ADR に記録）",
+  "payload": {
+   "deviation": "escalation"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T07:00:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P5",
+  "task": null,
+  "type": "gate.approved",
+  "actor": {
+   "kind": "human",
+   "role": "gatekeeper"
+  },
+  "summary": "2社の証跡パッケージをまとめてレビューし、品質基準達成判定を承認した",
+  "payload": {
+   "gate": "quality_acceptance"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T07:30:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P6",
+  "task": null,
+  "type": "commit.created",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent"
+  },
+  "summary": "2社分の工程成果物をまとめて逆生成した",
+  "payload": {
+   "artifacts": [
+    "reverse_generated_docs"
+   ]
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T07:40:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P6",
+  "task": null,
+  "type": "gate.approved",
+  "actor": {
+   "kind": "human",
+   "role": "customer"
+  },
+  "summary": "顧客が納品物を承認した",
+  "payload": {
+   "gate": "deliverable_review"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ }
+]

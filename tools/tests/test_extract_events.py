@@ -103,6 +103,9 @@ def test_phase_for_artifacts_uses_latest_phase():
     ("feat: [TASK-AW-002] Green - 新設", "TASK-AW-002", "green"),
     ("refactor: [TASK-AW-002] import を集約", "TASK-AW-002", "refactor"),
     ("docs(example): 設計レビュー", None, None),
+    ("TASK-MB-007: Red — 単体テストと性質テストを追加", "TASK-MB-007", "red"),
+    ("TASK-MB-007: Green — 振込先口座の登録", "TASK-MB-007", "green"),
+    ("TASK-MB-007: G3 の指摘を受けて更新", "TASK-MB-007", None),
 ])
 def test_task_and_step_from_subject(subject, task, step):
     assert ee.task_and_step(subject) == (task, step)
@@ -168,6 +171,8 @@ def test_squash_commit_split_by_phase(repo):
         ("P0", ["constitution"]), ("P1", ["requirement_spec"]), ("P4", ["code"]),
     ]
     assert all(e["payload"]["split_of"] == sha[:7] for e in events)
+    # 工程（step）は P4 に分けたものだけに付ける
+    assert [("step" in e["payload"]) for e in events] == [False, False, False]
     assert len({e["timestamp"] for e in events}) == 1
 
 
@@ -385,3 +390,42 @@ def test_reconstructed_events_get_labels(tmp_path):
     [ev] = ee.load_reconstructed(p)
     assert ev["provenance"] == "reconstructed"
     assert ev["source"] == {"kind": "reconstruction"}
+
+
+# --- ゲート失敗の履歴（gate-history.jsonl） -----------------------------------
+
+def test_gate_history_events(tmp_path):
+    rep = tmp_path / "reports"
+    rep.mkdir()
+    lines = [
+        {"at": "2026-09-19T10:00:00+00:00", "ok": False, "mode": "ci", "failed": ["g2.tests"], "summaries": {"tests": "x"}},
+        {"at": "2026-09-21T00:58:40+00:00", "ok": False, "mode": "manual", "failed": ["g1.scope"],
+         "summaries": {"scope": "scope: 許可範囲外の変更 1件 → tests/acceptance/test_x.py"}, "details": {"scope": ["/Users/a/b"]}},
+        {"at": "2026-09-21T01:25:03+00:00", "ok": True, "mode": "manual", "failed": [], "summaries": {}},
+    ]
+    (rep / "gate-history.jsonl").write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in lines) + "\n", encoding="utf-8")
+    evs = ee.gate_history_events(tmp_path, {"since": "2026-09-21T00:00:00Z", "task": "TASK-MB-007",
+                                            "phase": "P4", "iteration": "it"})
+    assert [e["payload"]["outcome"] for e in evs] == ["failed", "passed"]
+    first = evs[0]
+    assert first["type"] == "gate.evaluated"
+    assert first["timestamp"] == "2026-09-21T00:58:40Z"
+    assert first["task"] == "TASK-MB-007"
+    assert first["payload"]["trigger"] == "gate_run"
+    assert first["payload"]["results"] == [
+        {"layer": "G1", "check": "scope", "status": "failed", "summary": "許可範囲外の変更 1件 → tests/acceptance/test_x.py"}]
+    assert first["source"] == {"kind": "report", "ref": "reports/gate-history.jsonl"}
+    assert "/Users/" not in json.dumps(evs)  # details は持ち出さない
+
+
+# --- 案件の一覧 ---------------------------------------------------------------
+
+def test_projects_manifest_lists_existing_directories():
+    manifest = ee.load_projects()
+    ids = [p["id"] for p in manifest["projects"]]
+    assert ids == ["approval-workflow", "monthly-billing", "order-integration"]
+    for p in manifest["projects"]:
+        assert (ee.DATA / "projects" / p["id"] / "reconstructed.json").exists()
+    fictional = [p["id"] for p in manifest["projects"] if p.get("fictional")]
+    assert fictional == ["order-integration"]
+    assert manifest["program"]["fictional"] is True

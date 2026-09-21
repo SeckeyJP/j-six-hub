@@ -17,14 +17,20 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import extract_events as ee  # noqa: E402
 
-EVENTS = ROOT / "data" / "events.jsonl"
 SCHEMA = ROOT / "data" / "events.schema.json"
+MANIFEST = json.loads((ROOT / "data" / "projects.json").read_text(encoding="utf-8"))
+PROJECTS = [p["id"] for p in MANIFEST["projects"]]
+FICTIONAL = {p["id"] for p in MANIFEST["projects"] if p.get("fictional")}
 
 
-@pytest.fixture(scope="module")
-def events() -> list[dict]:
-    with open(EVENTS, encoding="utf-8") as f:
+def _load(project: str) -> list[dict]:
+    with open(ROOT / "data" / "projects" / project / "events.jsonl", encoding="utf-8") as f:
         return [json.loads(line) for line in f]
+
+
+@pytest.fixture(scope="module", params=PROJECTS)
+def events(request) -> list[dict]:
+    return _load(request.param)
 
 
 def test_every_event_matches_schema(events):
@@ -55,6 +61,14 @@ def test_no_local_paths_or_emails(events):
     assert ee.privacy_problems(events) == []
 
 
-def test_both_provenances_are_present(events):
-    kinds = {ev["provenance"] for ev in events}
+@pytest.mark.parametrize("project", sorted(set(PROJECTS) - FICTIONAL))
+def test_real_projects_have_both_provenances(project):
+    kinds = {ev["provenance"] for ev in _load(project)}
     assert kinds == {"measured", "reconstructed"}
+
+
+@pytest.mark.parametrize("project", sorted(FICTIONAL))
+def test_fictional_projects_are_all_reconstructed_and_say_so(project):
+    for ev in _load(project):
+        assert ev["provenance"] == "reconstructed", ev["id"]
+        assert "架空" in ev["basis"], ev["id"]

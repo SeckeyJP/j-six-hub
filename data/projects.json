@@ -1,0 +1,33 @@
+{
+  "program": {
+    "name": "社内業務システム刷新（説明用）",
+    "fictional": true,
+    "note": "3件の案件を束ねる説明用の架空のまとまり。案件ごとの実測・再構成・架空の区別は各案件を参照"
+  },
+  "projects": [
+    {
+      "id": "approval-workflow",
+      "name": "申請承認ワークフロー",
+      "summary": "社内の申請を多段で承認する API（FastAPI）。J-SIX の実行記録（2026-06 初版、2026-09 変更対応）",
+      "team": "チーム A（社内）",
+      "jsix_dir": "examples/approval-workflow",
+      "fictional": false
+    },
+    {
+      "id": "monthly-billing",
+      "name": "月次請求書発行",
+      "summary": "画面・帳票・バッチを持つ請求書発行。J-SIX の実行記録（2026-09-18 初版、2026-09-21 TASK-MB-007）",
+      "team": "チーム B（社内）",
+      "jsix_dir": "examples/monthly-billing",
+      "fictional": false
+    },
+    {
+      "id": "order-integration",
+      "name": "受発注連携",
+      "summary": "受注 API（ベンダー A）と在庫連携（ベンダー B）を Interface Contract でつなぐ。架空のシナリオ",
+      "team": "ベンダー A・ベンダー B",
+      "jsix_dir": null,
+      "fictional": true
+    }
+  ]
+}
