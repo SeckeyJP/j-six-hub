@@ -75,9 +75,17 @@ function apply(ctx: Ctx, ev: HubEvent): void {
       break;
     case "deviation.opened":
       openDeviation(ctx, ev);
+      updateTask(state, ev, (t) => {
+        const kind = str(ev.payload?.deviation);
+        if (kind === "local_fallback") t.status = "local_fallback";
+        else if (kind === "escalation" || kind === "interface_contract_violation") t.status = "escalated";
+      });
       break;
     case "deviation.closed":
       closeDeviation(state, ev);
+      updateTask(state, ev, (t) => {
+        if (t.status === "escalated" || t.status === "local_fallback") t.status = "running";
+      });
       break;
     case "task.dispatched":
       state.tasks.push(newTask(ev));
@@ -201,6 +209,7 @@ function newTask(ev: HubEvent): TaskView {
   return {
     id: ev.task ?? null,
     label: ev.task ?? `${iteration} / ID なし`,
+    team: str(ev.payload?.team),
     iteration,
     dispatchedAt: ev.seq,
     status: "waiting",
@@ -234,8 +243,9 @@ function applyCommit(state: HubState, ev: HubEvent): void {
     updateTask(state, ev, (t) => (t.step = str(ev.payload?.step) ?? t.step));
     return;
   }
-  if (ev.phase !== "P4") return;
-  // ID の無いタスク（2026-06 初版）は、実装のコミットで完了とみなす。ゲートの判定記録は無い
+  const artifacts = Array.isArray(ev.payload?.artifacts) ? (ev.payload.artifacts as unknown[]) : [];
+  if (ev.phase !== "P4" || !artifacts.includes("code")) return;
+  // ID の無いタスク（初版）は、コードを含むコミットで完了とみなす。ゲートの判定記録は無い
   for (const t of state.tasks) {
     if (t.id === null && t.iteration === ev.iteration && t.status !== "passed") {
       t.status = "passed";
