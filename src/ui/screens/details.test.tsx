@@ -43,7 +43,7 @@ describe("ゲート", () => {
     show("/gates", END);
     const blocked = screen
       .getAllByRole("article")
-      .find((a) => a.textContent?.includes("traceability") && a.textContent.includes("ブロック"))!;
+      .find((a) => a.textContent?.includes("未トレース") && a.textContent.includes("ブロック"))!;
     expect(blocked).toBeDefined();
     expect(blocked).toHaveTextContent("15 回");
     expect(blocked).toHaveTextContent("Stop hook");
