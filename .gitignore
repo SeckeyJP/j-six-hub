@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.env
+
+# 引き継ぎ資料（非公開）
+HANDOFF_TO_CLAUDE_CODE.md
+TODO_AND_ORDER.md
