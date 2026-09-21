@@ -223,6 +223,23 @@ describe("タスク", () => {
     expect(phase(s, "P4").status).toBe("approved");
   });
 
+  it("逆戻りで開き直した P4 は、前の周に合格したタスクでは完了にならない", () => {
+    const s = run([
+      ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
+      ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版" }),
+      ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } }),
+    ]);
+    expect(phase(s, "P4").status).toBe("in_progress");
+    const done = run([
+      ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
+      ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版" }),
+      ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } }),
+      ev({ type: "task.dispatched", phase: "P4", task: T }),
+      ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", results: [] } }),
+    ]);
+    expect(phase(done, "P4").status).toBe("approved");
+  });
+
   it("コミットで工程を記録する", () => {
     const s = run([
       ev({ type: "task.dispatched", phase: "P4", task: T }),
