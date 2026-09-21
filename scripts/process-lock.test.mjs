@@ -9,6 +9,7 @@ const lock = {
   sha256: "",
 };
 
+/** @param {string} text */
 const sha = (text) => createHash("sha256").update(text, "utf8").digest("hex");
 
 describe("rawUrl", () => {
