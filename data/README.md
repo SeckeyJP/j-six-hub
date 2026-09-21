@@ -1,46 +1,51 @@
 # リプレイ用データ
 
-J-SIX の `examples/approval-workflow`（申請承認ワークフロー）の実行記録を、Hub の画面で再生するためのイベント列。
-方針は [ADR-0001](../docs/adr/0001-replay-event-data.md) を参照。
+J-SIX Hub の画面で再生する出来事（イベント）。方針は [ADR-0001](../docs/adr/0001-replay-event-data.md)（形式と抽出）と
+[ADR-0003](../docs/adr/0003-multi-project-and-fictional-scenario.md)（複数案件と架空の案件）を参照。
 
 | ファイル | 内容 |
 |---|---|
-| `events.jsonl` | イベント列（1行1イベント、再生順）。`tools/extract_events.py` が生成する。**直接編集しない** |
+| `projects.json` | Program（説明用の架空のまとまり）と案件の一覧 |
+| `projects/<案件ID>/events.jsonl` | 案件のイベント（1行1イベント）。`tools/extract_events.py` が生成する。**直接編集しない** |
+| `projects/<案件ID>/sources.json` | 抽出の対象（コミット・承認欄・セッション・証跡・ゲート失敗の履歴）。実データの案件のみ |
+| `projects/<案件ID>/reconstructed.json` | 再構成イベント（手書き）。各イベントに根拠（`basis`）を書く |
 | `events.schema.json` | イベントの形式（JSON Schema） |
-| `sources.json` | 抽出の対象（コミット・承認欄・セッション・証跡パッケージ） |
-| `reconstructed.json` | 再構成イベント（手書き）。各イベントに根拠（`basis`）を書く |
+
+## 案件
+
+| 案件 | 種類 | 件数 | 出どころ |
+|---|---|---|---|
+| approval-workflow（申請承認ワークフロー） | 実データ | 82（実測 62 / 再構成 20） | J-SIX `examples/approval-workflow`。Git のコミットと承認欄、Claude Code のセッション記録、証跡パッケージ |
+| monthly-billing（月次請求書発行） | 実データ | 46（実測 30 / 再構成 16） | J-SIX `examples/monthly-billing`。Git のコミット、ゲート失敗の履歴（`reports/gate-history.jsonl`）、証跡パッケージ |
+| order-integration（受発注連携） | **架空** | 32（全件 再構成） | 複数ベンダー・Interface Contract 違反・エスカレーション・ローカル退避を説明するために作ったシナリオ |
+
+画面は全案件のイベントを時刻順に1本にして再生する。
 
 ## 実測と再構成
 
 すべてのイベントに `provenance` が付いている。
 
-- **`measured`（実測）**：記録から抽出したもの。出どころは `source` にある
+- **`measured`（実測）**：記録から抽出したもの。`source` の種類は次のとおり
   - `git`：J-SIX リポジトリのコミットと、コミット時点の文書の承認欄
   - `session`：Claude Code のセッション記録（著者の手元にのみある。短縮 ID を記載）
-  - `report`：`reports/evidence/` の証跡パッケージ
+  - `report`：証跡パッケージ、ゲート失敗の履歴
 - **`reconstructed`（再構成）**：記録が無いため組み立てたもの。`basis` に根拠がある。主に次のもの
-  - Hub 固有の出来事（案件の登録、プロセス定義・憲法の版の固定、タスク投入）。当時 Hub は存在しなかった
-  - 人間の承認。記録上は未承認、または AI が承認欄に書き込んでいる
-  - 逸脱とその回収（Phase 逆戻り、エスカレーション）。出来事は記録にあるが、Hub の逸脱として扱うのは解釈である
+  - Hub 固有の出来事（案件の登録、プロセス定義・憲法の版の固定、タスク投入）
+  - 人間の承認（記録上は未承認、または AI が承認欄に書き込んでいる）
+  - 逸脱とその回収（出来事は記録にあるが、Hub の逸脱として扱うのは解釈）
+  - 架空の案件のすべて（根拠に「架空のシナリオ」と書く）
 
-## 内容
+### 画面で見せたい統制の場面
 
-| 一周 | 期間 | 記録の細かさ |
-|---|---|---|
-| 2026-06 初版 | 2026-06-15 | squash された1コミットだけ。Phase ごとの時刻は無く、同じ時刻に並ぶイベントの順序は Phase の順に並べた。品質ゲート G1〜G4（J-SIX v2.1）より前なので、ゲートの判定記録は無い |
-| 2026-09 変更対応 | 2026-09-19 | Skill 7本の実行。設計レビュー → Spec 改訂 → TASK-AW-002 の TDD（hold-out / Red / Green / Refactor）→ 証跡 → トレーサビリティ → 品質メトリクス → 逆生成。時刻はコミットとセッション記録から実測 |
+実測のもの：
+- approval-workflow：要件を足した直後、トレーサビリティ検査が「テストの無い要件」で AI の作業終了を15回止めた。AI が承認欄に承認を書き込んだ。P5 の承認前に P6 が始まった（順序違反）
+- monthly-billing：AI が許可範囲外の hold-out テストを変更し、G1 スコープ検査で止められた。G3 の指摘による修正が5回続いた。要求の承認前に設計まで書かれていた（順序違反）
 
-含めていないもの：2026-09-10 の mutation testing と性質テストの追加（ケーススタディ #2）、2026-09-19 午前の非機能要件の書式移行、
-Plugin 本体の修正コミット、Plugin の読み込みに失敗した実行（成果物は破棄された）。
+架空のもの（受発注連携）：
+- ベンダー B の AI が他社の API 契約を変えようとして止められ、契約の所有者が却下した
+- テストが続けて失敗し、担当者がローカルで直して、同じゲートを通して戻した
 
-### 画面で見せたい統制の場面（いずれも実測）
-
-- Spec に REQ-011/012・PROP-007〜009 を追加した直後、トレーサビリティ検査が「テストの無い要件」で AI の作業終了を15回止めた
-- AI が要求 Spec・Design Spec の承認欄に承認を書き込んだ（Hub では人間の承認として受け付けない）
-- TDD の各工程が別のサブエージェント（hold-out・Red・Green・Refactor・scope-judge）で実行された
-- ドキュメントの変更で G3 の判定が古くなり、ゲートが再判定を求めた
-
-いずれも当時の Plugin の不具合（J-SIX `docs/plugin-field-test-01.md` §3）を含む記録であり、ブロックの回数は不具合の影響を受けている。
+当時の Plugin には不具合があり（J-SIX `docs/plugin-field-test-01.md` §3）、ブロックの回数はその影響を受けている。
 
 ## セッション記録から持ち出したもの
 
@@ -49,10 +54,10 @@ Plugin 本体の修正コミット、Plugin の読み込みに失敗した実行
 
 ## 再生成
 
-セッション記録が必要なため、著者の手元でのみ実行できる。
+approval-workflow はセッション記録が必要なため、著者の手元でのみ実行できる。
 
 ```bash
-git -C ../j-six fetch origin pull/5/head:refs/replay/pr-5
+git -C ../j-six fetch origin pull/4/head:refs/replay/pr-4 pull/5/head:refs/replay/pr-5 pull/18/head:refs/replay/pr-18
 python3 tools/extract_events.py --jsix-repo ../j-six --sessions ~/.claude/projects/<approval-workflow の作業ディレクトリ>
 python3 tools/extract_events.py ... --check   # 既存の events.jsonl と一致するか
 ```

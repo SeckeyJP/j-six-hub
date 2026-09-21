@@ -64,7 +64,7 @@ J-SIX `docs/control-plane/adr/` の ADR に従う。変更が必要だと考え�
 - **`jsix-process.yaml` をコピーして独自に改変しない**。Phase・ゲートの表示は yaml から生成し、ハードコードしない
 - **リプレイであることを全画面に常時表示する**（「リプレイ（実際の AI は動作していません）」）
 - **全イベントに provenance（`measured` 実測 / `reconstructed` 再構成）を付け、画面にも表示する**
-- 架空シナリオを作る場合は全イベントを `reconstructed` とし、画面上でも架空と明示する
+- 架空シナリオを作る場合は全イベントを `reconstructed` とし、画面上でも架空と明示する（受発注連携と Program。docs/adr/0003）
 
 ---
 
@@ -102,7 +102,7 @@ J-SIX `docs/control-plane/adr/` の ADR に従う。変更が必要だと考え�
 ├── CLAUDE.md
 ├── README.md
 ├── LICENSE
-├── data/            # リプレイ用イベント（events.jsonl は生成物。直接編集しない）
+├── data/            # リプレイ用データ。projects.json（Program と案件）と projects/<案件ID>/（events.jsonl は生成物。直接編集しない）
 ├── tools/           # 抽出スクリプトとテスト
 └── docs/
     ├── adr/         # Hub 固有の ADR

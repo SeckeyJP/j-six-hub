@@ -251,3 +251,8 @@ tr.warn td { color: var(--danger); }
 .guide-button { font: inherit; font-size: 0.82rem; padding: 0.25rem 0.7rem; border-radius: 999px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
 .tour { width: 22rem; }
 .player .help { vertical-align: 0; }
+.player button.help { min-width: 1.15rem; height: 1.15rem; border-radius: 50%; border: 1px solid var(--muted); background: transparent; color: var(--muted); }
+.timeline .help-bubble { left: auto; right: -0.5rem; }
+.timeline .help-bubble[data-side="below"]::after { left: auto; right: 0.9rem; }
+.player .help-bubble { top: auto; bottom: 1.7rem; left: auto; right: -0.5rem; }
+.player .help-bubble::after { top: auto !important; bottom: -6px; left: auto !important; right: 0.9rem; }
