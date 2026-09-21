@@ -1,4 +1,4 @@
-import type { ScreenProps } from ".";
+import type { ScreenProps } from "./project";
 import { ProvenanceBadge } from "../provenance-badge";
 import { CHECK_STATUS, OUTCOME, TRIGGER } from "../labels";
 

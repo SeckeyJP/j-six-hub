@@ -1,4 +1,4 @@
-import type { ScreenProps } from ".";
+import type { ScreenProps } from "./project";
 import { ProvenanceBadge } from "../provenance-badge";
 
 const ACTOR = { human: "人間", ai: "AI", system: "システム" } as const;

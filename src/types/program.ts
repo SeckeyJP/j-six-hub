@@ -12,6 +12,8 @@ export interface ProjectMeta {
   name: string;
   summary: string;
   team: string;
+  /** J-SIX リポジトリでの案件のディレクトリ（架空の案件は null） */
+  jsix_dir?: string | null;
   fictional: boolean;
 }
 

@@ -1,4 +1,4 @@
-import type { ScreenProps } from ".";
+import type { ScreenProps } from "./project";
 import { TASK_STATUS } from "../labels";
 
 export function Tasks({ state, process }: ScreenProps) {
@@ -10,8 +10,11 @@ export function Tasks({ state, process }: ScreenProps) {
         const headingId = `task-${t.dispatchedAt}`;
         return (
           <section key={t.dispatchedAt} aria-labelledby={headingId} className="card">
-            <h3 id={headingId}>{t.label}</h3>
-            <p>
+            <h3 id={headingId}>
+              {t.label}
+              {t.team && <span className="team"> — {t.team}</span>}
+            </h3>
+            <p className={`status-pill task-${t.status}`}>
               {TASK_STATUS[t.status]}
               {!t.gateRecorded && t.status === "passed" && "（ゲート記録なし。品質ゲート導入前）"}
             </p>
