@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SeckeyJP/j-six-hub/data/events.schema.json",
+  "title": "J-SIX Hub リプレイ用イベント",
+  "description": "data/events.jsonl の1行。docs/adr/0001-replay-event-data.md を参照。状態（Phase・タスクの状態）はイベントに持たせず、画面がプロセス定義から計算する。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seq", "id", "timestamp", "type", "actor", "summary", "provenance", "source"],
+  "properties": {
+    "seq": {"type": "integer", "minimum": 1, "description": "再生順。1から連番"},
+    "id": {"type": "string", "pattern": "^ev-[0-9]{4}$"},
+    "timestamp": {"type": "string", "format": "date-time", "description": "UTC。再構成イベントは想定した時刻"},
+    "iteration": {"type": "string", "description": "一周の区切り（例: 2026-06 初版 / 2026-09 変更対応）"},
+    "phase": {"type": ["string", "null"], "pattern": "^P[0-9]$", "description": "J-SIX の Phase。実測イベントでは成果物・作業内容からの推定"},
+    "task": {"type": ["string", "null"], "pattern": "^TASK-[A-Z]+-[0-9]+$"},
+    "type": {
+      "enum": [
+        "commit.created",
+        "ai.session.started",
+        "ai.session.finished",
+        "ai.agent.started",
+        "ai.agent.finished",
+        "gate.evaluated",
+        "hook.blocked",
+        "project.registered",
+        "process.pinned",
+        "constitution.pinned",
+        "task.dispatched",
+        "gate.approved",
+        "deviation.opened",
+        "deviation.closed"
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["human", "ai", "system"]},
+        "role": {"type": "string", "description": "J-SIX プロセス定義の roles の ID"},
+        "name": {"type": "string"}
+      }
+    },
+    "summary": {"type": "string", "minLength": 1, "description": "画面に出す1文（日本語）"},
+    "payload": {"type": "object"},
+    "provenance": {"enum": ["measured", "reconstructed"]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["git", "session", "report", "reconstruction"]},
+        "ref": {"type": "string", "description": "コミット SHA、レポートのパス、セッションの短縮 ID など"}
+      }
+    },
+    "basis": {"type": "string", "minLength": 1, "description": "再構成の根拠。reconstructed では必須"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"provenance": {"const": "reconstructed"}}},
+      "then": {
+        "required": ["basis"],
+        "properties": {"source": {"properties": {"kind": {"const": "reconstruction"}}}}
+      }
+    },
+    {
+      "if": {"properties": {"provenance": {"const": "measured"}}},
+      "then": {"properties": {"source": {"properties": {"kind": {"enum": ["git", "session", "report"]}}}}}
+    }
+  ]
+}
