@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { events as realEvents, processDef } from "../data";
+import { processDef, program } from "../data";
 import type { HubEvent } from "../types/events";
 import { replay } from "./replay";
+
+const realEvents = program.projects.find((p) => p.id === "approval-workflow")!.events;
 
 // --- 合成イベントの組み立て ---------------------------------------------------
 
@@ -218,26 +220,49 @@ describe("タスク", () => {
   });
 
   it("ID の無いタスクは P4 のコミットで「合格（ゲート記録なし）」にする", () => {
-    const s = run([ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }), ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版" })]);
-    expect(s.tasks[0]).toMatchObject({ id: null, label: "2026-06 初版 / ID なし", status: "passed", gateRecorded: false });
-    expect(phase(s, "P4").status).toBe("approved");
+    const s = run([
+      ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
+      ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版", payload: { artifacts: ["holdout_tests"] } }),
+    ]);
+    expect(s.tasks[0]!.status).toBe("waiting"); // コードを含まないコミットでは完了にしない
+    const done = run([
+      ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
+      ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版", payload: { artifacts: ["code", "tests"] } }),
+    ]);
+    expect(done.tasks[0]).toMatchObject({ id: null, label: "2026-06 初版 / ID なし", status: "passed", gateRecorded: false });
+    expect(phase(done, "P4").status).toBe("approved");
   });
 
   it("逆戻りで開き直した P4 は、前の周に合格したタスクでは完了にならない", () => {
     const s = run([
       ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
-      ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版" }),
+      ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版", payload: { artifacts: ["code"] } }),
       ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } }),
     ]);
     expect(phase(s, "P4").status).toBe("in_progress");
     const done = run([
       ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
-      ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版" }),
+      ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版", payload: { artifacts: ["code"] } }),
       ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } }),
       ev({ type: "task.dispatched", phase: "P4", task: T }),
       ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", results: [] } }),
     ]);
     expect(phase(done, "P4").status).toBe("approved");
+  });
+
+  it("投入時の担当（チーム・ベンダー）を記録する", () => {
+    const s = run([ev({ type: "task.dispatched", phase: "P4", task: T, payload: { team: "ベンダー A" } })]);
+    expect(s.tasks[0]!.team).toBe("ベンダー A");
+  });
+
+  it("エスカレーション・契約違反・ローカル退避でタスクの状態を変え、閉じたら実行中に戻す", () => {
+    const base = [ev({ type: "task.dispatched", phase: "P4", task: T })];
+    const open = (kind: string) => ev({ type: "deviation.opened", phase: "P4", task: T, payload: { deviation: kind } });
+    expect(run([...base, open("escalation")]).tasks[0]!.status).toBe("escalated");
+    expect(run([...base, open("interface_contract_violation")]).tasks[0]!.status).toBe("escalated");
+    expect(run([...base, open("local_fallback")]).tasks[0]!.status).toBe("local_fallback");
+    const closed = run([...base, open("local_fallback"), ev({ type: "deviation.closed", phase: "P4", task: T, payload: { deviation: "local_fallback" } })]);
+    expect(closed.tasks[0]!.status).toBe("running");
   });
 
   it("コミットで工程を記録する", () => {
