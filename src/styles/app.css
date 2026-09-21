@@ -244,3 +244,10 @@ tr.warn td { color: var(--danger); }
   .pipeline { grid-template-columns: repeat(7, 9rem); overflow-x: auto; }
   .board-notes { grid-template-columns: 1fr; }
 }
+.help-wrap { position: relative; display: inline-block; }
+.help-bubble { top: 1.6rem; left: -1rem; width: 20rem; display: block; font-size: 0.84rem; line-height: 1.55; }
+.help-bubble strong { display: block; margin-bottom: 0.2rem; }
+.help-text { display: block; }
+.guide-button { font: inherit; font-size: 0.82rem; padding: 0.25rem 0.7rem; border-radius: 999px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
+.tour { width: 22rem; }
+.player .help { vertical-align: 0; }

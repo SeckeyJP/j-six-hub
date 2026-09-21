@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ControlKind } from "../replay/narrate";
 import type { TimelineItem } from "../types/program";
 import { SPEEDS, type Player } from "./use-player";
@@ -11,10 +12,12 @@ export function PlayerBar({
   player,
   timeline,
   controlPoints,
+  help,
 }: {
   player: Player;
   timeline: TimelineItem[];
   controlPoints: Map<string, ControlKind[]>;
+  help?: ReactNode;
 }) {
   const { n, total, playing } = player;
   const current = timeline[n - 1];
@@ -41,7 +44,9 @@ export function PlayerBar({
       </div>
       <div className="player-info">
         <output className="position">{`${n} / ${total}`}</output>
-        <span className="time">{current ? formatTime(current.event.timestamp) : "開始前"}</span>
+        <span className="time">
+          {current ? formatTime(current.event.timestamp) : "開始前"} {help}
+        </span>
       </div>
       <fieldset className="speed">
         <legend>速度</legend>

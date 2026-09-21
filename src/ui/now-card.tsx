@@ -16,8 +16,8 @@ export function NowCard({
   help?: ReactNode;
 }) {
   return (
-    <section aria-labelledby="now-title" className={`now ${narration?.control ? "now-control" : ""}`} data-guide="now">
-      <h2 id="now-title">
+    <section aria-label="いま起きたこと" className={`now ${narration?.control ? "now-control" : ""}`} data-guide="now">
+      <h2>
         いま起きたこと {help}
       </h2>
       {!item || !narration || !project ? (

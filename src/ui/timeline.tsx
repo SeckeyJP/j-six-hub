@@ -28,6 +28,7 @@ export function Timeline({
   controlPoints,
   projectId,
   help,
+  legendHelp,
 }: {
   data: ProgramData;
   process: ProcessDefinition;
@@ -35,6 +36,7 @@ export function Timeline({
   controlPoints: Map<string, ControlKind[]>;
   projectId: string | null;
   help?: ReactNode;
+  legendHelp?: ReactNode;
 }) {
   const [onlyControl, setOnlyControl] = useState(false);
   const [onlyProject, setOnlyProject] = useState(false);
@@ -49,8 +51,8 @@ export function Timeline({
     .reverse();
 
   return (
-    <aside className="timeline" aria-labelledby="timeline-title" data-guide="timeline">
-      <h2 id="timeline-title">出来事の記録 {help}</h2>
+    <aside className="timeline" aria-label="出来事の記録" data-guide="timeline">
+      <h2>出来事の記録 {help}</h2>
       <section aria-label="凡例" className="legend" data-guide="legend">
         <span><ProvenanceBadge value="measured" /> 記録から抽出</span>
         <span><ProvenanceBadge value="reconstructed" /> 記録が無く組み立て</span>
@@ -59,6 +61,7 @@ export function Timeline({
         <span>{ACTOR_ICON.ai} AI</span>
         <span>{ACTOR_ICON.system} Hub</span>
         <span><span className="flag">⚑</span> 統制ポイント</span>
+        {legendHelp}
       </section>
       <div className="filters">
         <label>

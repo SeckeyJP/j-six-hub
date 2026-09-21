@@ -4,6 +4,7 @@ import { replayProgram } from "./replay/program";
 import { replay } from "./replay/replay";
 import type { ProgramData } from "./types/program";
 import type { ProcessDefinition } from "./types/process";
+import { HelpTip, Tour, useGuide } from "./ui/guide";
 import { NowCard } from "./ui/now-card";
 import { PlayerBar } from "./ui/player-bar";
 import { FictionalBadge } from "./ui/provenance-badge";
@@ -24,8 +25,9 @@ export interface AppProps {
   guideAutoStart?: boolean;
 }
 
-export function App({ data, process }: AppProps) {
+export function App({ data, process, guideAutoStart = true }: AppProps) {
   const player = usePlayer(data.timeline.length);
+  const guide = useGuide(guideAutoStart);
   const route = parseRoute(useHashRoute());
   const state = useMemo(() => replayProgram(data, process, player.n), [data, process, player.n]);
   const controlPoints = useMemo(() => controlPointsOf(data, process), [data, process]);
@@ -53,27 +55,49 @@ export function App({ data, process }: AppProps) {
         <p className="program">
           {data.program.name} <FictionalBadge />
         </p>
+        <button type="button" className="guide-button" onClick={guide.start} aria-label="ガイドを開く">
+          ？ ガイド
+        </button>
       </header>
-      <Sidebar data={data} state={state} route={route} />
+      <Sidebar data={data} state={state} route={route} help={<HelpTip id="projects" />} />
       <main>
-        <NowCard item={current} project={currentProject} narration={narration} />
-        {selected ? (
-          <ProjectScreen project={selected} screen={route.kind === "project" ? route.screen : "board"} state={state.projects[selected.id]!} process={process} />
-        ) : (
-          <section aria-labelledby="screen-title">
-            <h2 id="screen-title">すべての案件</h2>
-            <Home data={data} state={state} process={process} />
-          </section>
-        )}
+        <NowCard item={current} project={currentProject} narration={narration} help={<HelpTip id="now" />} />
+        <div data-guide="screen">
+          {selected ? (
+            <ProjectScreen
+              project={selected}
+              screen={route.kind === "project" ? route.screen : "board"}
+              state={state.projects[selected.id]!}
+              process={process}
+              help={<HelpTip id="screen" />}
+            />
+          ) : (
+            <section aria-labelledby="screen-title">
+              <h2 id="screen-title">
+                すべての案件 <HelpTip id="screen" />
+              </h2>
+              <Home data={data} state={state} process={process} />
+            </section>
+          )}
+        </div>
         <p className="credit">
           Phase・ゲートの定義: J-SIX プロセス定義 {process._source.tag}（{process._source.repository}、{process._source.license}）。
           出来事: J-SIX の examples（approval-workflow・monthly-billing）の実行記録から抽出した実測と、記録の無い部分を組み立てた再構成。受発注連携は架空。
         </p>
       </main>
-      <Timeline data={data} process={process} n={player.n} controlPoints={controlPoints} projectId={selected?.id ?? null} />
+      <Timeline
+        data={data}
+        process={process}
+        n={player.n}
+        controlPoints={controlPoints}
+        projectId={selected?.id ?? null}
+        help={<HelpTip id="timeline" />}
+        legendHelp={<HelpTip id="legend" />}
+      />
       <footer className="playerbar">
-        <PlayerBar player={player} timeline={data.timeline} controlPoints={controlPoints} />
+        <PlayerBar player={player} timeline={data.timeline} controlPoints={controlPoints} help={<HelpTip id="player" />} />
       </footer>
+      <Tour guide={guide} />
     </div>
   );
 }
