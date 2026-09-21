@@ -12,7 +12,7 @@
 ## 変更許可範囲（allow）
 
 - `src/ui/**`
-- `src/App.tsx`
+- `src/app.tsx`
 - `src/main.tsx`
 - `src/styles/**`
 
