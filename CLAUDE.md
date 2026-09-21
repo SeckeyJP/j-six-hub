@@ -19,7 +19,7 @@
 ### 技術スタック
 
 - **構成**: 静的 SPA、バックエンドなし、GitHub Pages で公開（前提）
-- **言語・フレームワーク・テストツール**: [未決: M4 冒頭で ADR 化する。決まるまで実装コードを書かない]
+- **言語・フレームワーク・テストツール**: TypeScript 6.0 / React 19 / Vite 8 / Vitest + Testing Library（[ADR-0002](docs/adr/0002-web-app-stack.md)）
 - **DB**: なし（`data/events.jsonl` を読み込む）
 - **CI/CD**: GitHub Actions
 
@@ -42,7 +42,13 @@ python3 -m pip install jsonschema pytest     # テスト用
 python3 -m pytest tools/tests -q              # 抽出スクリプトとデータの検査
 python3 tools/extract_events.py --jsix-repo ../j-six --sessions <セッション記録のディレクトリ>   # 再生成（著者の手元のみ）
 
-# Web アプリ: [未決: 技術スタックの ADR 確定後に記入]
+# Web アプリ（TypeScript + React + Vite。docs/adr/0002）
+npm ci                 # 依存インストール
+npm run dev            # 開発サーバー
+npm test               # Vitest（事前に固定版のプロセス定義を取得・検証する）
+npm run typecheck      # 型検査
+npm run lint           # ESLint
+npm run build          # dist/ に静的ファイルを出力
 ```
 
 > **重要**: テストは必ず実行して通ることを確認してからコミットすること。
@@ -79,13 +85,13 @@ J-SIX `docs/control-plane/adr/` の ADR に従う。変更が必要だと考え�
 - コメント: 「何をしているか」ではなく「なぜそうしているか」を書く
 - 1関数 30行・引数4つを目安。超える場合は分割を検討
 - 例外は握りつぶさない
-- 命名規則・インデント・インポート順序: [未決: 技術スタックの ADR 確定後に記入]
+- 命名: ファイルは kebab-case（React コンポーネントは PascalCase）、関数・変数は camelCase、型は PascalCase。インデントはスペース2
 
 ### 画面
 
 - セマンティック HTML を優先する。キーボード操作に対応する
 - 画面は閲覧専用。状態は「先頭から N 番目までのイベントを適用した結果」として計算し、画面側に状態を持ち込まない
-- UI ライブラリ・状態管理・ルーティング: [未決: 技術スタックの ADR で決める]
+- リプレイの計算は `src/replay/`（React に依存しない純粋関数）、表示は `src/ui/`。状態管理・ルーティングのライブラリは使わない（hash ルーティング）
 
 ---
 

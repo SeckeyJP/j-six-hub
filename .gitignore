@@ -1,11 +1,12 @@
 node_modules/
 dist/
 coverage/
+.cache/
 .DS_Store
 .env
+__pycache__/
+.pytest_cache/
 
 # 引き継ぎ資料（非公開）
 HANDOFF_TO_CLAUDE_CODE.md
 TODO_AND_ORDER.md
-__pycache__/
-.pytest_cache/
