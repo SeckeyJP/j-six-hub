@@ -1,32 +1,54 @@
 import type { ReactNode } from "react";
 import type { ProgramState } from "../replay/program";
+import type { HubState } from "../replay/state";
 import type { ProgramData } from "../types/program";
-import { SCREENS } from "./labels";
+import { PHASE_STATUS, SCREENS } from "./labels";
 import { FictionalBadge } from "./provenance-badge";
 import type { Route } from "./route";
 import { alertsOf } from "./screens/home";
 
-/** 左の案件ナビ。案件ごとに Phase の進み具合と注意の数を小さく示す */
+/** 画面ごとに添える件数（0 のときは出さない） */
+function screenCount(id: string, s: HubState): number {
+  if (id === "traceability") return s.traceability.untraced.length;
+  if (id === "gates") return alertsOf(s).stopped;
+  if (id === "approvals") return s.approvals.filter((a) => !a.valid).length;
+  return 0;
+}
+
+function currentLine(p: { events: unknown[] }, s: HubState, measured: number): string {
+  const phase = [...s.phases].reverse().find((x) => x.status !== "not_started");
+  const where = phase ? `${phase.id} ${phase.name} ${PHASE_STATUS[phase.status]}` : "未登録";
+  return `${where} ・ 実測 ${measured}/${p.events.length}`;
+}
+
+/** 左のプロジェクトナビ。工程の進み具合と、Hub が止めた回数を添える */
 export function Sidebar({ data, state, route, help }: { data: ProgramData; state: ProgramState; route: Route; help?: ReactNode }) {
   const selected = route.kind === "project" ? route.id : null;
+  const selectedState = selected ? state.projects[selected] : undefined;
   return (
     <div className="sidebar" data-guide="projects">
-      <nav aria-label="案件">
-        <h2>案件 {help}</h2>
+      <nav aria-label="プロジェクト">
+        <h2>プロジェクト {help}</h2>
         <a href="#/" className="nav-home" aria-current={route.kind === "home" ? "page" : undefined}>
-          すべての案件（一覧）
+          ← 全プロジェクト一覧
         </a>
         <ul>
           {data.projects.map((p) => {
             const s = state.projects[p.id]!;
-            const alerts = alertsOf(s);
-            const total = alerts.violations + alerts.stopped + alerts.openDeviations + alerts.invalidApprovals;
+            const stopped = alertsOf(s).stopped;
+            const measured = p.events.filter((e) => e.provenance === "measured").length;
             return (
               <li key={p.id} className={selected === p.id ? "selected" : undefined}>
                 <a href={`#/p/${p.id}/board`} aria-current={selected === p.id ? "true" : undefined}>
-                  <span className="project-name">
-                    <span className="project-dot" data-project={p.id} />
-                    {p.name}
+                  <span className="project-head">
+                    <span className="project-name">
+                      <span className="project-dot" data-project={p.id} />
+                      {p.name}
+                    </span>
+                    {/* 0 件でも場所を確保し、再生中に高さを変えない（REQ-022） */}
+                    <span className={`stop-badge ${stopped > 0 ? "" : "is-empty"}`} data-testid="stop-badge">
+                      停止 {stopped}
+                    </span>
                   </span>
                   <span className="badge-slot">{p.fictional && <FictionalBadge />}</span>
                   <span className="mini-phases" aria-hidden="true" data-slot="phases">
@@ -34,9 +56,8 @@ export function Sidebar({ data, state, route, help }: { data: ProgramData; state
                       <span key={ph.id} className={`mini status-${ph.status}`} />
                     ))}
                   </span>
-                  {/* 注意が無いときも場所を確保し、再生中に項目の高さを変えない（REQ-022） */}
-                  <span className={`alert-count ${total > 0 ? "" : "is-empty"}`} title="注意点の数" data-slot="alerts">
-                    ⚑ {total}
+                  <span className="project-line" data-slot="line">
+                    {currentLine(p, s, measured)}
                   </span>
                 </a>
               </li>
@@ -44,14 +65,22 @@ export function Sidebar({ data, state, route, help }: { data: ProgramData; state
           })}
         </ul>
       </nav>
-      {selected && (
+      {selected && selectedState && (
         <nav aria-label="画面" className="screen-nav">
-          <h2>この案件の画面</h2>
-          {SCREENS.map((sc) => (
-            <a key={sc.id} href={`#/p/${selected}/${sc.id}`} aria-current={route.kind === "project" && route.screen === sc.id ? "page" : undefined}>
-              {sc.label}
-            </a>
-          ))}
+          <h2>{data.projects.find((p) => p.id === selected)?.name} の画面</h2>
+          {SCREENS.map((sc) => {
+            const count = screenCount(sc.id, selectedState);
+            return (
+              <a
+                key={sc.id}
+                href={`#/p/${selected}/${sc.id}`}
+                aria-current={route.kind === "project" && route.screen === sc.id ? "page" : undefined}
+              >
+                <span>{sc.label}</span>
+                {count > 0 && <span className="screen-count">{count}</span>}
+              </a>
+            );
+          })}
         </nav>
       )}
     </div>

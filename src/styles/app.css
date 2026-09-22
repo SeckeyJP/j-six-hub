@@ -341,3 +341,32 @@ tr.untraced td { background: color-mix(in srgb, var(--danger) 9%, transparent); 
 }
 .judge-text { grid-column: 2; grid-row: 1; }
 .judge-next { grid-row: 2; justify-self: start; }
+
+/* --- デザインレビュー②：左ナビ・履歴 --- */
+.sidebar li a { display: grid; gap: 0.15rem; }
+.project-head { display: flex; align-items: center; gap: 0.4rem; }
+.stop-badge {
+  margin-left: auto; font-size: 0.72rem; font-weight: 700; padding: 0 0.45rem; border-radius: 999px;
+  color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); white-space: nowrap;
+}
+.stop-badge.is-empty { visibility: hidden; }
+.sidebar li.selected .stop-badge { color: #fff; background: var(--danger); }
+.project-line { font-size: 0.72rem; color: var(--muted); }
+.screen-nav a { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.screen-count { font-size: 0.72rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 999px; padding: 0 0.4rem; }
+.timeline h2 { display: flex; align-items: baseline; gap: 0.4rem; }
+.timeline h2 .sub { font-size: 0.75rem; font-weight: 400; color: var(--muted); margin-left: auto; }
+.filters { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.segment {
+  font: inherit; font-size: 0.78rem; padding: 0.15rem 0.6rem; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap;
+}
+.segment.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.event-head { display: flex; align-items: center; gap: 0.35rem; width: 100%; }
+.event-index { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 2.4rem; }
+.events li.control .event-index { color: var(--danger); font-weight: 700; }
+.event-prov { margin-left: auto; }
+.event-kind { color: var(--danger); font-size: 0.75rem; }
+.event-basis { color: var(--reconstructed); font-size: 0.72rem; }
+.events li.fictional { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--fictional) 6%, transparent) 10px 12px); }
+.events li.control { border-radius: 0 8px 8px 0; }

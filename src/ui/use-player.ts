@@ -4,8 +4,8 @@ export const SPEEDS = [1, 4, 16] as const;
 export type Speed = (typeof SPEEDS)[number];
 
 /** リプレイの再生位置。位置 n は「先頭から適用したイベント数」（0〜total） */
-export function usePlayer(total: number) {
-  const [n, setN] = useState(0);
+export function usePlayer(total: number, initial: number | null = null) {
+  const [n, setN] = useState(() => Math.max(0, Math.min(total, initial ?? 0)));
   const [wantsPlay, setWantsPlay] = useState(false);
   const [speed, setSpeed] = useState<Speed>(1);
 

@@ -45,7 +45,7 @@ describe("案件ナビと案件カード", () => {
   const stateAt = (n: number) => replayProgram(program, processDef, n);
 
   it("登録前と最後で、ナビの項目の欄が同じ", () => {
-    const route = { kind: "home" } as const;
+    const route = { kind: "home", n: null } as const;
     const before = render(<Sidebar data={program} state={stateAt(0)} route={route} />).container;
     const after = render(<Sidebar data={program} state={stateAt(program.timeline.length)} route={route} />).container;
     expect(shape(before)).toEqual(shape(after));
