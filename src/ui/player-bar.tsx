@@ -12,11 +12,14 @@ export function PlayerBar({
   player,
   timeline,
   controlPoints,
+  nextControl,
   help,
 }: {
   player: Player;
   timeline: TimelineItem[];
   controlPoints: Map<string, ControlKind[]>;
+  /** 現在位置より後の、最初に Hub が止めた場面（無ければ null） */
+  nextControl: number | null;
   help?: ReactNode;
 }) {
   const { n, total, playing } = player;
@@ -31,6 +34,16 @@ export function PlayerBar({
         </button>
         <button type="button" onClick={() => player.step(1)} aria-label="1イベント進む" title="1つ進む（→）">▶|</button>
         <button type="button" onClick={player.last} aria-label="末尾へ" title="末尾へ（End）">⏭</button>
+        <button
+          type="button"
+          className="next-control"
+          aria-label="次の停止へ"
+          onClick={() => nextControl !== null && player.seek(nextControl)}
+          disabled={nextControl === null}
+          title="次に Hub が止めた場面へ移動する"
+        >
+          ⚑ 次の停止へ
+        </button>
       </div>
       <div className="player-track">
         <div className="marks" aria-hidden="true">

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app";
 import { processDef, program } from "../data";
-import { GUIDE_STEPS, GUIDE_STORAGE_KEY } from "./guide";
+import { GUIDE_STEPS, GUIDE_STORAGE_KEY, HELP } from "./guide";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -72,14 +72,16 @@ describe("ガイドツアー", () => {
   it("各ステップの対象のエリアが画面にある", () => {
     window.location.hash = "#/p/approval-workflow/board";
     const { container } = renderApp(false);
-    for (const step of GUIDE_STEPS) expect(container.querySelector(`[data-guide="${step.id}"]`)).not.toBeNull();
+    for (const step of GUIDE_STEPS) {
+      if (step.target) expect(container.querySelector(`[data-guide="${step.target}"]`)).not.toBeNull();
+    }
   });
 });
 
 describe("？の説明（REQ-018）", () => {
   it("見出しの？で、そのエリアの説明を表示し、もう一度押すと閉じる", async () => {
     renderApp(false);
-    const step = GUIDE_STEPS.find((s) => s.id === "timeline")!;
+    const step = HELP.timeline!;
     const button = screen.getByRole("button", { name: `${step.title}の説明` });
     await userEvent.click(button);
     expect(screen.getByRole("dialog", { name: step.title })).toHaveTextContent(step.text);
@@ -89,7 +91,7 @@ describe("？の説明（REQ-018）", () => {
 
   it("Escape で説明を閉じる", async () => {
     renderApp(false);
-    const step = GUIDE_STEPS.find((s) => s.id === "projects")!;
+    const step = HELP.projects!;
     await userEvent.click(screen.getByRole("button", { name: `${step.title}の説明` }));
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: step.title })).toBeNull();

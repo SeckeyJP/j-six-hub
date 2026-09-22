@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GUIDE_STEPS, placeBubble, resolveSide } from "./guide";
+import { GUIDE_STEPS, HELP, placeBubble, resolveSide } from "./guide";
 
 const rect = (top: number, height: number, left = 0, width = 300) =>
   ({ top, height, left, width, right: left + width, bottom: top + height }) as DOMRect;
@@ -66,6 +66,9 @@ describe("ガイドの文言", () => {
   it("配置に依存する言葉（左・右・下の）を使わない", () => {
     for (const s of GUIDE_STEPS) {
       expect(s.text, s.id).not.toMatch(/左|右|下の|上の/);
+    }
+    for (const [id, h] of Object.entries(HELP)) {
+      expect(h.text, id).not.toMatch(/左|右|下の|上の/);
     }
   });
 });

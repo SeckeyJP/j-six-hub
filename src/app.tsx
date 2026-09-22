@@ -1,9 +1,10 @@
 import { useEffect, useMemo } from "react";
-import { controlPointsOf, narrate } from "./replay/narrate";
+import { controlPointsOf, highlightKey, narrate } from "./replay/narrate";
 import { replayProgram } from "./replay/program";
 import { replay } from "./replay/replay";
 import type { ProgramData } from "./types/program";
 import type { ProcessDefinition } from "./types/process";
+import { firstHighlight, nextControl } from "./ui/control-nav";
 import { HelpTip, Tour, useGuide } from "./ui/guide";
 import { NowCard } from "./ui/now-card";
 import { PlayerBar } from "./ui/player-bar";
@@ -31,6 +32,8 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
   const route = parseRoute(useHashRoute());
   const state = useMemo(() => replayProgram(data, process, player.n), [data, process, player.n]);
   const controlPoints = useMemo(() => controlPointsOf(data, process), [data, process]);
+  const nextStop = useMemo(() => nextControl(data.timeline, controlPoints, player.n), [data.timeline, controlPoints, player.n]);
+  const highlight = useMemo(() => firstHighlight(data.timeline, controlPoints, highlightKey(data, process)), [data, process, controlPoints]);
   useKeyboard(player);
 
   const current = state.current;
@@ -61,7 +64,16 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
       </header>
       <Sidebar data={data} state={state} route={route} help={<HelpTip id="projects" />} />
       <main>
-        <NowCard item={current} project={currentProject} narration={narration} help={<HelpTip id="now" />} />
+        <NowCard
+          item={current}
+          project={currentProject}
+          narration={narration}
+          n={player.n}
+          total={data.timeline.length}
+          nextControl={nextStop}
+          onSeek={player.seek}
+          help={<HelpTip id="now" />}
+        />
         <div data-guide="screen">
           {selected ? (
             <ProjectScreen
@@ -95,9 +107,9 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
         legendHelp={<HelpTip id="legend" />}
       />
       <footer className="playerbar">
-        <PlayerBar player={player} timeline={data.timeline} controlPoints={controlPoints} help={<HelpTip id="player" />} />
+        <PlayerBar player={player} timeline={data.timeline} controlPoints={controlPoints} nextControl={nextStop} help={<HelpTip id="player" />} />
       </footer>
-      <Tour guide={guide} />
+      <Tour guide={guide} highlight={highlight} onSeek={player.seek} />
     </div>
   );
 }

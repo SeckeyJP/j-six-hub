@@ -9,44 +9,45 @@ export interface GuideStep {
   id: string;
   title: string;
   text: string;
+  /** 吹き出しを付けるエリア（data-guide の値）。null なら画面の中央に出す */
+  target: string | null;
   side: Side;
+  /** 1枚目に出す「見どころ」の3点 */
+  points?: { label: string; control?: boolean }[];
 }
 
 export const GUIDE_STEPS: GuideStep[] = [
   {
+    id: "intro",
+    title: "これは、過去の開発記録の「再生」です",
+    text: "AI エージェントを使った3つの開発プロジェクトの記録を、J-SIX Hub の管理画面として時系列に再生します。画面の中で AI は動いていません。",
+    target: null,
+    side: "below",
+    points: [
+      { label: "複数のプロジェクトの工程を、横断して管理します" },
+      { label: "検査や承認を通らないと、AI は先へ進めません", control: true },
+      { label: "「実測／再構成／架空」のラベルで、記録の出どころが分かります" },
+    ],
+  },
+  {
     id: "projects",
-    title: "案件の管理",
-    text: "Hub が管理する案件の一覧です。案件ごとに、7つの工程（Phase）の進み具合を小さなバーで、統制が働いた回数を ⚑ で示します。案件を選ぶと、その案件の画面を開けます。",
+    title: "プロジェクト",
+    text: "Hub が管理するプロジェクトの一覧です。プロジェクトごとに、7つの工程（Phase）の進み具合を小さなバーで、統制が働いた回数を ⚑ で示します。選ぶと、そのプロジェクトの画面を開けます。",
+    target: "projects",
     side: "right",
   },
   {
-    id: "player",
-    title: "再生",
-    text: "再生バーで出来事を再生します。▶ で再生、◀ と ▶| で1つずつ戻したり進めたりできます（← → キーも使えます）。スライダーに付いた赤い印は、Hub の統制が働いた出来事の位置です。",
-    side: "above",
-  },
-  {
-    id: "now",
-    title: "いま起きたこと",
-    text: "再生位置の出来事を、平易な言葉で説明します。赤い帯が付いているときは、Hub が工程のルールに沿って作業を止めた、承認を認めなかった、といった統制が働いた場面です。",
-    side: "below",
-  },
-  {
     id: "screen",
-    title: "案件の状態",
-    text: "選んだ案件の状態を表示します。Phase ボード（工程の進み）・タスク（AI の作業）・ゲート（品質の検査）・承認・証跡を切り替えられます。どれも、再生位置までの出来事から計算した状態です。",
+    title: "いま起きたことと、工程の状態",
+    text: "帯の付いたカードは、再生位置の出来事の説明です。帯が赤いときは、Hub が工程のルールに沿って作業を止めた場面です。続けて、選んだプロジェクトの工程・要求・作業・検査・承認・監査記録が並びます。",
+    target: "now",
     side: "below",
   },
   {
     id: "timeline",
-    title: "出来事の記録",
-    text: "これまでに起きた出来事が、新しい順に並びます。行を押すと、いつ・誰が・何を根拠にした出来事かを確かめられます。「統制ポイントだけ」で、統制が働いた出来事に絞れます。",
-    side: "left",
-  },
-  {
-    id: "legend",
-    title: "実測・再構成・架空",
-    text: "「実測」は Git やセッション記録など実際の記録から取り出した出来事、「再構成」は記録が無いため組み立てた出来事（根拠付き）、「架空」は説明のために作った案件です。これはリプレイで、実際の AI は動いていません。",
+    title: "履歴と再生",
+    text: "これまでの出来事が新しい順に並びます。行を押すと、いつ・誰が・何を根拠にした出来事かを確かめられます。「Hub が止めた」で絞り込めます。再生バーの赤い印は、止まった位置です。",
+    target: "timeline",
     side: "left",
   },
 ];
@@ -126,14 +127,14 @@ export function placeBubble(rect: DOMRect | null, vp: Viewport, side: Side): { t
   }
 }
 
-/** ツアー：対象のエリアを強調し、その横に吹き出しを出す */
-export function Tour({ guide }: { guide: Guide }) {
+/** ツアー：対象のエリアを強調し、その横に吹き出しを出す。対象の無いステップは中央に出す */
+export function Tour({ guide, highlight, onSeek }: { guide: Guide; highlight?: number | null; onSeek?: (n: number) => void }) {
   const current = guide.step === null ? null : GUIDE_STEPS[guide.step]!;
   const [pos, setPos] = useState<{ top: number; left: number; width: number; side: Side }>({ top: 80, left: 80, width: 352, side: "below" });
 
   useLayoutEffect(() => {
     if (!current) return;
-    const target = document.querySelector(`[data-guide="${current.id}"]`);
+    const target = current.target ? document.querySelector(`[data-guide="${current.target}"]`) : null;
     target?.classList.add("tour-target");
     target?.scrollIntoView?.({ block: "nearest" });
     const update = () => {
@@ -141,7 +142,11 @@ export function Tour({ guide }: { guide: Guide }) {
       const rect = target?.getBoundingClientRect() ?? null;
       const side = rect ? resolveSide(rect, vp, current.side) : current.side;
       const box = placeBubble(rect, vp, side);
-      setPos({ top: box.top, left: box.left, width: box.width, side });
+      // 対象の無いステップ（1枚目）は画面の中央に置く
+      const width = rect ? box.width : Math.min(520, vp.width - 32);
+      const left = rect ? box.left : Math.max(16, (vp.width - width) / 2);
+      const top = rect ? box.top : Math.max(16, vp.height * 0.18);
+      setPos({ top, left, width, side });
     };
     update();
     window.addEventListener("resize", update);
@@ -168,9 +173,30 @@ export function Tour({ guide }: { guide: Guide }) {
       <div role="dialog" aria-label="ガイド" className="bubble tour" data-side={pos.side} style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width }}>
         <h3>{current.title}</h3>
         <p>{current.text}</p>
+        {current.points && (
+          <ul className="guide-points">
+            {current.points.map((pt) => (
+              <li key={pt.label} className={pt.control ? "control" : undefined}>
+                {pt.control && "⚑ "}
+                {pt.label}
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="bubble-actions">
           <span className="step">{`${guide.step + 1} / ${GUIDE_STEPS.length}`}</span>
           <button type="button" onClick={guide.close}>閉じる</button>
+          {highlight != null && onSeek && (
+            <button
+              type="button"
+              onClick={() => {
+                onSeek(highlight);
+                guide.close();
+              }}
+            >
+              ⚑ 見どころへ移動（{highlight}）
+            </button>
+          )}
           {guide.step > 0 && <button type="button" onClick={guide.prev}>戻る</button>}
           <button type="button" className="primary" onClick={last ? guide.close : guide.next}>
             {last ? "終わる" : "次へ"}
@@ -181,9 +207,37 @@ export function Tour({ guide }: { guide: Guide }) {
   );
 }
 
+/** エリアごとの説明（REQ-018）。ガイドのステップとは独立に持つ */
+export const HELP: Record<string, { title: string; text: string }> = {
+  projects: {
+    title: "プロジェクト",
+    text: "Hub が管理するプロジェクトの一覧です。プロジェクトごとに、7つの工程（Phase）の進み具合と、統制が働いた回数を示します。",
+  },
+  now: {
+    title: "いま起きたこと",
+    text: "再生位置の出来事を平易な言葉で説明します。帯が赤いときは、Hub が工程のルールに沿って作業を止めた場面です。",
+  },
+  screen: {
+    title: "プロジェクトの状態",
+    text: "選んだプロジェクトの状態です。工程・要求・作業・検査・承認・要件とテストの対応・監査記録を切り替えられます。いずれも再生位置までの出来事から計算した状態です。",
+  },
+  timeline: {
+    title: "履歴",
+    text: "これまでの出来事が新しい順に並びます。行を押すと、いつ・誰が・何を根拠にした出来事かを確かめられます。「Hub が止めた」で絞り込めます。",
+  },
+  legend: {
+    title: "実測・再構成・架空",
+    text: "「実測」は実際の記録から取り出した出来事、「再構成」は記録が無いため組み立てた出来事（根拠付き）、「架空」は説明のために作ったプロジェクトです。",
+  },
+  player: {
+    title: "再生",
+    text: "再生バーで出来事を再生します。1件ずつ進める・戻すもできます（← → キー）。赤い印は Hub が止めた場面の位置で、「⚑ 次の停止へ」でそこまで一気に進めます。",
+  },
+};
+
 /** 見出しの横の「？」。押すとそのエリアの説明を吹き出しで出す */
 export function HelpTip({ id }: { id: string }) {
-  const step = GUIDE_STEPS.find((s) => s.id === id);
+  const step = HELP[id];
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;

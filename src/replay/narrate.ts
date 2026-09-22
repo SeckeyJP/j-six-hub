@@ -44,6 +44,29 @@ export function controlPointsOf(data: ProgramData, process: ProcessDefinition): 
   return points;
 }
 
+/**
+ * ガイドで案内する「見どころ」のキー。
+ * 要件を追加した結果テストが無い状態になった場面のうち、**すでに要件とテストの対応がある**
+ * ところへ追加したものを選ぶ（最初の登録時は対応表がまだ無く、統制の例として分かりにくいため）。
+ */
+export function highlightKey(data: ProgramData, process: ProcessDefinition): string | null {
+  let fallback: string | null = null;
+  for (const p of data.projects) {
+    let before = replay(p.events, process, 0);
+    for (let i = 0; i < p.events.length; i += 1) {
+      const ev = p.events[i]!;
+      const after = replay(p.events, process, i + 1);
+      if (controlKinds(ev, before, after).includes("untraced_requirement")) {
+        const key = `${p.id}:${ev.id}`;
+        if (before.traceability.entries.length > 0) return key;
+        fallback ??= key;
+      }
+      before = after;
+    }
+  }
+  return fallback;
+}
+
 const STEP_TEXT: Record<string, string> = {
   holdout: "hold-out 受入テスト（実装を担当する AI からは見えないテスト）を書く",
   red: "Red：まず失敗するテストを書く",

@@ -310,3 +310,34 @@ tr.untraced td { background: color-mix(in srgb, var(--danger) 9%, transparent); 
 .trace-warn { color: var(--danger); font-weight: 700; }
 .trace-ok { color: var(--ok); font-weight: 700; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; word-break: break-word; }
+
+/* --- いま起きたこと：ヘッダ帯付きカード（デザインレビュー①） --- */
+.now { padding: 0; border-left: 1px solid var(--line); overflow: hidden; }
+.now.now-control { border-color: color-mix(in srgb, var(--danger) 35%, var(--panel)); background: var(--panel); }
+.now-band {
+  display: flex; align-items: center; gap: 0.6rem; height: 2rem; margin: 0;
+  padding: 0 1rem; font-size: 0.82rem; font-weight: 700;
+  background: var(--bg); color: var(--muted);
+}
+.now-band.band-control { background: var(--danger); color: #fff; }
+.band-pos { font-weight: 400; opacity: 0.9; }
+.band-time { margin-left: auto; font-weight: 400; font-variant-numeric: tabular-nums; }
+.now-band .help { border-color: currentColor; color: currentColor; }
+.now-body { padding: 0.75rem 1rem 0.9rem; }
+.now-hub { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.6rem; align-items: baseline; }
+.judge-label { color: var(--danger); white-space: nowrap; }
+.judge-next { all: unset; cursor: pointer; grid-column: 2; color: var(--accent); font-size: 0.8rem; }
+.judge-next:focus-visible { outline: 2px solid var(--accent); }
+.next-control { min-width: 7rem !important; border-color: var(--danger) !important; color: var(--danger); font-size: 0.82rem; }
+.next-control:disabled { opacity: 0.4; cursor: default; }
+.guide-points { list-style: none; padding: 0; margin: 0.2rem 0 0.6rem; display: grid; gap: 0.3rem; font-size: 0.85rem; }
+.guide-points li { background: rgb(255 255 255 / 8%); border-radius: 6px; padding: 0.3rem 0.5rem; }
+.guide-points li.control { background: color-mix(in srgb, var(--danger) 30%, transparent); }
+/* 「Hub の判断」欄：本文2行＋リンク1行で高さを固定する（REQ-022） */
+.now-hub {
+  grid-template-rows: calc(2 * var(--lh) * 0.9rem) 1.2rem;
+  height: calc(2 * var(--lh) * 0.9rem + 1.2rem + 0.9rem);
+  align-items: start;
+}
+.judge-text { grid-column: 2; grid-row: 1; }
+.judge-next { grid-row: 2; justify-self: start; }
