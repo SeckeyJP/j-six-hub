@@ -7,6 +7,7 @@ import { replayProgram } from "../replay/program";
 import { NowCard } from "./now-card";
 import { Sidebar } from "./sidebar";
 import { Home } from "./screens/home";
+import { ProjectScreen } from "./screens/project";
 
 // REQ-022: 再生中に配置が動かないよう、出来事の内容に依らず同じ構造で描画する。
 // 高さそのものは jsdom では測れないため、ここでは構造（欄の有無）が変わらないことを確かめ、
@@ -54,5 +55,16 @@ describe("案件ナビと案件カード", () => {
     const before = render(<Home data={program} state={stateAt(0)} process={processDef} />).container;
     const after = render(<Home data={program} state={stateAt(program.timeline.length)} process={processDef} />).container;
     expect(shape(before)).toEqual(shape(after));
+  });
+});
+
+describe("Phase ボード", () => {
+  it("逆戻りの前後で、Phase カードの欄が同じ", () => {
+    const aw = program.projects[0]!;
+    const k = aw.events.findIndex((e) => e.type === "deviation.opened" && e.payload?.deviation === "phase_rollback");
+    const at = (n: number) =>
+      render(<ProjectScreen project={aw} screen="board" state={replay(aw.events, processDef, n)} process={processDef} />).container;
+    expect(shape(at(k))).toEqual(shape(at(k + 1)));
+    expect(shape(at(k + 1))).toContain("reopened");
   });
 });

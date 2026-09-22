@@ -43,28 +43,25 @@ export function Home({ data, state, process }: { data: ProgramData; state: Progr
               </div>
               <p className="muted">{p.team}</p>
               <p className="summary">{p.summary}</p>
-              {!s.project ? (
-                <p className="muted">まだ登録されていません</p>
-              ) : (
-                <>
-                  <ol className="phase-bar" aria-label="Phase の進み具合">
-                    {s.phases.map((ph) => (
-                      <li key={ph.id} data-testid="phase-seg" className={`seg status-${ph.status}`} title={`${ph.id} ${ph.name}: ${PHASE_STATUS[ph.status]}`}>
-                        {ph.id}
-                      </li>
-                    ))}
-                  </ol>
-                  <p className="muted">
-                    いま：{currentPhase ? `${currentPhase.id} ${currentPhase.name}（${PHASE_STATUS[currentPhase.status]}）` : "—"} ／ 一周：{s.iteration}
-                  </p>
-                  <ul className="alerts">
-                    {a.stopped > 0 && <li>⚑ ゲートで停止 {a.stopped}</li>}
-                    {a.invalidApprovals > 0 && <li>⚑ 無効な承認 {a.invalidApprovals}</li>}
-                    {a.violations > 0 && <li>⚑ 順序違反 {a.violations}</li>}
-                    {a.openDeviations > 0 && <li>⚑ 対応中の逸脱 {a.openDeviations}</li>}
-                  </ul>
-                </>
-              )}
+              {/* 登録の前後で欄の構成を変えず、再生中にカードの高さを変えない（REQ-022） */}
+              <ol className="phase-bar" aria-label="Phase の進み具合" data-slot="phases">
+                {s.phases.map((ph) => (
+                  <li key={ph.id} data-testid="phase-seg" className={`seg status-${ph.status}`} title={`${ph.id} ${ph.name}: ${PHASE_STATUS[ph.status]}`}>
+                    {ph.id}
+                  </li>
+                ))}
+              </ol>
+              <p className="muted status-line clamp" data-slot="status">
+                {!s.project
+                  ? "まだ登録されていません"
+                  : `いま：${currentPhase ? `${currentPhase.id} ${currentPhase.name}（${PHASE_STATUS[currentPhase.status]}）` : "—"} ／ 一周：${s.iteration}`}
+              </p>
+              <ul className="alerts" data-slot="alerts">
+                {a.stopped > 0 && <li>⚑ ゲートで停止 {a.stopped}</li>}
+                {a.invalidApprovals > 0 && <li>⚑ 無効な承認 {a.invalidApprovals}</li>}
+                {a.violations > 0 && <li>⚑ 順序違反 {a.violations}</li>}
+                {a.openDeviations > 0 && <li>⚑ 対応中の逸脱 {a.openDeviations}</li>}
+              </ul>
               <div className="card-foot">
                 <span className="muted">
                   {p.fictional ? `全 ${p.events.length} 件が架空（再構成）` : `実測 ${measured} 件 / 再構成 ${p.events.length - measured} 件`}

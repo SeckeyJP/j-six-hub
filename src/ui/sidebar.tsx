@@ -28,13 +28,16 @@ export function Sidebar({ data, state, route, help }: { data: ProgramData; state
                     <span className="project-dot" data-project={p.id} />
                     {p.name}
                   </span>
-                  {p.fictional && <FictionalBadge />}
-                  <span className="mini-phases" aria-hidden="true">
+                  <span className="badge-slot">{p.fictional && <FictionalBadge />}</span>
+                  <span className="mini-phases" aria-hidden="true" data-slot="phases">
                     {s.phases.map((ph) => (
                       <span key={ph.id} className={`mini status-${ph.status}`} />
                     ))}
                   </span>
-                  {total > 0 && <span className="alert-count" title="注意点の数">⚑ {total}</span>}
+                  {/* 注意が無いときも場所を確保し、再生中に項目の高さを変えない（REQ-022） */}
+                  <span className={`alert-count ${total > 0 ? "" : "is-empty"}`} title="注意点の数" data-slot="alerts">
+                    ⚑ {total}
+                  </span>
                 </a>
               </li>
             );

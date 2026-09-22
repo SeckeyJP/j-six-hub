@@ -22,7 +22,10 @@ export function Board({ state, process }: ScreenProps) {
                 {PHASE_STATUS[p.status]}
                 {p.mode === "continuous" && "（継続）"}
               </p>
-              {p.reopened && p.status !== "approved" && <p className="warn">↩ 逆戻りで再開</p>}
+              {/* 表示しないときも場所を確保し、再生中にカードの高さを変えない（REQ-022） */}
+              <p className={`warn reopened ${p.reopened && p.status !== "approved" ? "" : "is-empty"}`} data-slot="reopened">
+                ↩ 逆戻りで再開
+              </p>
               <p className="gate">🚪 {gate ? gate.name : "ゲートなし"}</p>
               {gate && gate.layers.length > 1 && (
                 <ol className="layers">
