@@ -243,7 +243,9 @@ tr.warn td { color: var(--danger); }
   /* 狭い画面では案件ナビを横に並べ、本文をすぐ読めるようにする */
   .sidebar { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--line); padding: 0.4rem 0.6rem; }
   .sidebar h2 { display: none; }
-  .sidebar nav { display: flex; align-items: center; gap: 0.4rem; overflow-x: auto; }
+  /* ナビの中だけを横スクロールさせ、ページ全体を広げない */
+  .sidebar { overflow: hidden; }
+  .sidebar nav { display: flex; align-items: center; gap: 0.4rem; overflow-x: auto; min-width: 0; max-width: 100%; }
   .sidebar ul { display: flex; gap: 0.4rem; margin: 0; }
   .sidebar li a, .nav-home, .screen-nav a { white-space: nowrap; padding: 0.3rem 0.6rem; margin: 0; border: 1px solid var(--line); border-radius: 999px; font-size: 0.82rem; }
   .sidebar .mini-phases, .sidebar .badge-slot { display: none; }
@@ -254,9 +256,11 @@ tr.warn td { color: var(--danger); }
   .player-info .time { font-size: 0.72rem; }
   .playerbar { position: sticky; bottom: 0; }
   /* 狭い画面では再生バーを2段に詰める（操作＋位置／スライダーと速度） */
-  .player { grid-template-columns: auto 1fr; grid-template-areas: "buttons info" "track speed"; gap: 0.3rem 0.6rem; padding: 0.4rem 0.7rem; }
+  .player { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "buttons info" "track speed"; gap: 0.3rem 0.5rem; padding: 0.4rem 0.6rem; }
   .player-buttons { grid-area: buttons; }
-  .player-info { grid-area: info; flex-direction: row; align-items: baseline; gap: 0.5rem; justify-content: flex-end; height: 1.3rem; overflow: hidden; }
+  .player-info { grid-area: info; flex-direction: row; align-items: baseline; gap: 0.4rem; justify-content: flex-end; height: 1.3rem; overflow: hidden; min-width: 0; }
+  .player-info .time { overflow: hidden; text-overflow: ellipsis; }
+  .speed { font-size: 0.76rem; gap: 0.3rem; min-width: 0; }
   .player-track { grid-area: track; padding-top: 0.5rem; }
   .speed { grid-area: speed; justify-self: end; }
   .pipeline { grid-template-columns: repeat(7, 9rem); overflow-x: auto; }
