@@ -18,6 +18,7 @@ const CONTROL_LABEL: Record<ControlKind, string> = {
   invalid_approval: "無効な承認",
   deviation: "逸脱",
   violation: "順序違反",
+  untraced_requirement: "テスト未対応の要件",
 };
 
 /** 出来事の記録（REQ-020, REQ-021）。新しい順。統制ポイントを目立たせ、絞り込める */

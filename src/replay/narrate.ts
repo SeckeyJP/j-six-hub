@@ -6,7 +6,7 @@ import type { ProcessDefinition } from "../types/process";
 import { replay } from "./replay";
 import type { HubState } from "./state";
 
-export type ControlKind = "gate_stopped" | "invalid_approval" | "deviation" | "violation";
+export type ControlKind = "gate_stopped" | "invalid_approval" | "deviation" | "violation" | "untraced_requirement";
 
 export interface Narration {
   headline: string;
@@ -25,6 +25,7 @@ export function controlKinds(ev: HubEvent, before: HubState, after: HubState): C
   if (ev.type === "gate.approved" && after.approvals.at(-1)?.valid === false) kinds.push("invalid_approval");
   if (ev.type === "deviation.opened") kinds.push("deviation");
   if (after.violations.length > before.violations.length) kinds.push("violation");
+  if (after.traceability.untraced.length > before.traceability.untraced.length) kinds.push("untraced_requirement");
   return kinds;
 }
 
@@ -129,6 +130,24 @@ function describe(ev: HubEvent, after: HubState, process: ProcessDefinition): { 
         detail: ["当時の Plugin の不具合で、同じ理由のブロックが繰り返された"],
         control: "同じ理由で止まり続けると、Hub は人に知らせる（エスカレーション）",
       };
+    case "requirements.updated": {
+      const added = Array.isArray(p.added) ? (p.added as string[]) : [];
+      const count = Array.isArray(p.requirements) ? p.requirements.length : 0;
+      return {
+        headline: added.length > 0 ? `要求に ${added.join("・")} を追加した（全 ${count} 件）` : `要求 Spec を更新した（全 ${count} 件）`,
+        detail: ["要件（REQ）はテストコードに ID を書き込み、対応を機械的に確かめる"],
+        control: added.length > 0 ? "追加した要件にテストが無い間、Hub の品質ゲートは作業の完了を通さない（トレーサビリティ検査）" : null,
+      };
+    }
+    case "traceability.updated": {
+      const entries = Array.isArray(p.entries) ? (p.entries as { tests: string[] }[]) : [];
+      const withTests = entries.filter((e) => (e.tests ?? []).length > 0).length;
+      return {
+        headline: `トレーサビリティを更新した（${withTests} / ${entries.length} 件にテストが対応）`,
+        detail: [ev.summary],
+        control: null,
+      };
+    }
     case "gate.evaluated":
       return describeGate(ev);
     case "gate.approved":

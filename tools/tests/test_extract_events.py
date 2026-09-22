@@ -429,3 +429,83 @@ def test_projects_manifest_lists_existing_directories():
     fictional = [p["id"] for p in manifest["projects"] if p.get("fictional")]
     assert fictional == ["order-integration"]
     assert manifest["program"]["fictional"] is True
+
+
+# --- 要求とトレーサビリティ ---------------------------------------------------
+
+SPEC_DOC = """# 要求 Spec
+
+### 3.2 業務ルール（要件ID = トレーサビリティ・キー）
+
+| # | ルール | 詳細 |
+|---|---|---|
+| REQ-001 | 承認段数は金額で決まる | 10万未満=1段 |
+| REQ-002 | 提出は申請者のみ | DRAFT の申請を提出できる |
+
+### 3.3 受入条件と Property（PROP）
+
+| # | 対応要件 | 受入条件（例ベース） | Property（性質ベース） |
+|---|---|---|---|
+| PROP-001 | REQ-001 | 5万円=1段 | 任意の2つの金額について単調非減少 |
+
+### 3.4 hold-out 受入テストの対象
+"""
+
+TRACE_DOC = """# トレーサビリティマトリクス
+
+| 要件 | 内容 | テスト | 実装 | ADR |
+|---|---|---|---|---|
+| REQ-001 | 金額に応じた承認段数 | `test_a`, `test_b` | `workflow.levels` | — |
+| REQ-002 | 提出は申請者のみ | `test_c` | `WorkflowService.submit` | ADR-0001, ADR-0003 |
+
+## Property（PROP）⇔ テスト
+
+| Property | テスト |
+|---|---|
+| PROP-001 | `test_prop_001` |
+"""
+
+
+def test_parse_requirement_spec():
+    got = ee.parse_requirement_spec(SPEC_DOC)
+    assert got["requirements"] == [
+        {"id": "REQ-001", "title": "承認段数は金額で決まる", "detail": "10万未満=1段"},
+        {"id": "REQ-002", "title": "提出は申請者のみ", "detail": "DRAFT の申請を提出できる"},
+    ]
+    assert got["properties"] == [
+        {"id": "PROP-001", "requirements": ["REQ-001"], "property": "任意の2つの金額について単調非減少"},
+    ]
+
+
+def test_parse_traceability():
+    got = ee.parse_traceability(TRACE_DOC)
+    assert got["entries"] == [
+        {"id": "REQ-001", "title": "金額に応じた承認段数", "tests": ["test_a", "test_b"], "code": ["workflow.levels"], "adr": []},
+        {"id": "REQ-002", "title": "提出は申請者のみ", "tests": ["test_c"], "code": ["WorkflowService.submit"], "adr": ["ADR-0001", "ADR-0003"]},
+    ]
+    assert got["properties"] == [{"id": "PROP-001", "tests": ["test_prop_001"]}]
+
+
+def test_document_events_mark_added_ids(repo):
+    proj = repo / "examples" / "demo"
+    (proj / "docs").mkdir(exist_ok=True)
+    def commit(text, msg):
+        (proj / "docs" / "requirement-spec.md").write_text(text, encoding="utf-8")
+        _git(repo, "add", "-A")
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=T", "-c", "user.email=t@example.com",
+                        "commit", "-q", "-m", msg], check=True)
+        return _git(repo, "rev-parse", "HEAD")
+
+    first = commit(SPEC_DOC, "spec")
+    second = commit(SPEC_DOC.replace("| REQ-002 |", "| REQ-003 | 追加の要件 | 詳細 |\n| REQ-002 |"), "spec2")
+    events = ee.document_events(repo, "examples/demo", "requirements", [
+        {"sha": first, "phase": "P1", "iteration": "it"},
+        {"sha": second, "phase": "P1", "iteration": "it"},
+    ])
+    assert [e["type"] for e in events] == ["requirements.updated", "requirements.updated"]
+    assert events[0]["payload"]["added"] == ["REQ-001", "REQ-002"]
+    assert events[1]["payload"]["added"] == ["REQ-003"]
+    assert [r["id"] for r in events[1]["payload"]["requirements"]] == ["REQ-001", "REQ-003", "REQ-002"]
+    assert events[1]["summary"] == "要求 Spec を更新した（REQ-003 を追加）"
+    assert events[0]["provenance"] == "measured"
+    assert events[0]["source"] == {"kind": "git", "ref": f"{first[:7]}:docs/requirement-spec.md"}

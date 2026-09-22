@@ -2,7 +2,7 @@
 // 純粋関数。呼び出しの履歴に依らず、同じ入力には同じ状態を返す（PROP-001）。
 import type { GateResult, HubEvent } from "../types/events";
 import type { Gate, PhaseId, ProcessDefinition } from "../types/process";
-import type { ApprovalView, HubState, PhaseView, TaskView } from "./state";
+import type { ApprovalView, HubState, PhaseView, PropertyItem, Requirement, TaskView, TraceEntry } from "./state";
 
 /** Phase の状態を変える「作業」のイベント */
 const WORK_TYPES = new Set([
@@ -48,6 +48,8 @@ function initialState(process: ProcessDefinition, n: number): HubState {
     approvals: [],
     deviations: [],
     violations: [],
+    requirements: { items: [], properties: [], added: [], updatedBy: null },
+    traceability: { entries: [], properties: [], untraced: [], updatedBy: null },
     counts: { measured: 0, reconstructed: 0 },
   };
 }
@@ -105,7 +107,24 @@ function apply(ctx: Ctx, ev: HubEvent): void {
     case "gate.evaluated":
       applyEvaluation(state, ev);
       break;
+    case "requirements.updated":
+      state.requirements = {
+        items: list<Requirement>(ev.payload?.requirements),
+        properties: list<PropertyItem>(ev.payload?.properties),
+        added: list<string>(ev.payload?.added),
+        updatedBy: ev.id,
+      };
+      break;
+    case "traceability.updated":
+      state.traceability = {
+        entries: list<TraceEntry>(ev.payload?.entries),
+        properties: list<{ id: string; tests: string[] }>(ev.payload?.properties),
+        untraced: [],
+        updatedBy: ev.id,
+      };
+      break;
   }
+  updateUntraced(state);
   completePerTaskPhases(state);
 }
 
@@ -271,6 +290,21 @@ function applyEvaluation(state: HubState, ev: HubEvent): void {
     t.status = outcome === "passed" ? "passed" : "failed";
     t.gateRecorded = true;
   });
+}
+
+function list<T>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
+/**
+ * テストが対応していない要件。要求 Spec にある要件のうち、対応表に無いか、
+ * 対応表にあってもテストが空のものを挙げる（要求の追加からテストの追加までの間に現れる）。
+ */
+function updateUntraced(state: HubState): void {
+  const traced = new Map(state.traceability.entries.map((e) => [e.id, e.tests.length > 0]));
+  state.traceability.untraced = state.requirements.items
+    .map((r) => r.id)
+    .filter((id) => !traced.get(id));
 }
 
 function str(v: unknown): string | null {

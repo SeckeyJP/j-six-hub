@@ -7,7 +7,9 @@ import { Approvals } from "./approvals";
 import { Board } from "./board";
 import { Evidence } from "./evidence";
 import { Gates } from "./gates";
+import { Requirements } from "./requirements";
 import { Tasks } from "./tasks";
+import { Traceability } from "./traceability";
 
 export interface ScreenProps {
   project: ProjectData;
@@ -15,7 +17,15 @@ export interface ScreenProps {
   process: ProcessDefinition;
 }
 
-const COMPONENTS = { board: Board, tasks: Tasks, gates: Gates, approvals: Approvals, evidence: Evidence } as const;
+const COMPONENTS = {
+  board: Board,
+  requirements: Requirements,
+  tasks: Tasks,
+  gates: Gates,
+  approvals: Approvals,
+  traceability: Traceability,
+  evidence: Evidence,
+} as const;
 
 export function ProjectScreen({ screen, help, ...props }: ScreenProps & { screen: string; help?: ReactNode }) {
   const def = SCREENS.find((s) => s.id === screen) ?? SCREENS[0];

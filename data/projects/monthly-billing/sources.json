@@ -4,36 +4,134 @@
     {
       "iteration": "2026-09-18 初版",
       "items": [
-        {"sha": "2b5689f", "split_by_phase": true, "summary": "要求 Spec と Design Spec・ADR を1つのコミットでまとめて入れた（Phase ごとに分けて表示）"},
-        {"sha": "7b7ae0a", "summary": "hold-out 受入テストをコミットした（実装担当からは読めないテスト）"},
-        {"sha": "3b14aaf", "summary": "TDD で実装したコードとテストをコミットした"},
-        {"sha": "e62f3db", "phase": "P5", "summary": "README とトレーサビリティを更新した"},
-        {"sha": "3bf291c", "phase": "P4", "summary": "G3（意図・スコープ判定）の指摘2件に対処した"},
-        {"sha": "3e9cc50", "summary": "逆生成した工程成果物27点をコミットした"}
+        {
+          "sha": "2b5689f",
+          "split_by_phase": true,
+          "summary": "要求 Spec と Design Spec・ADR を1つのコミットでまとめて入れた（Phase ごとに分けて表示）"
+        },
+        {
+          "sha": "7b7ae0a",
+          "summary": "hold-out 受入テストをコミットした（実装担当からは読めないテスト）"
+        },
+        {
+          "sha": "3b14aaf",
+          "summary": "TDD で実装したコードとテストをコミットした"
+        },
+        {
+          "sha": "e62f3db",
+          "phase": "P5",
+          "summary": "README とトレーサビリティを更新した"
+        },
+        {
+          "sha": "3bf291c",
+          "phase": "P4",
+          "summary": "G3（意図・スコープ判定）の指摘2件に対処した"
+        },
+        {
+          "sha": "3e9cc50",
+          "summary": "逆生成した工程成果物27点をコミットした"
+        }
       ]
     },
     {
       "iteration": "2026-09-21 TASK-MB-007",
       "items": [
-        {"sha": "b4eb1c6", "split_by_phase": true, "summary": "Spec 改訂・タスク定義・hold-out 受入テストを1つのコミットでまとめて入れた（Phase ごとに分けて表示）"},
-        {"sha": "18f79de"},
-        {"sha": "497b1c8"},
-        {"sha": "923087d", "phase": "P4", "summary": "mutation testing で見つかったテストの穴を塞いだ"},
-        {"sha": "32bcc82", "phase": "P4", "summary": "G3 の指摘を受けて、取り残した工程成果物を更新した（指摘 1回目）"},
-        {"sha": "188fe1d", "phase": "P4", "summary": "G3 の再指摘（監査記録の定義と順序）を反映した（2回目）"},
-        {"sha": "9586a14", "phase": "P4", "summary": "G3 の指摘（トレーサビリティとシステム化業務説明）を反映した（3回目）"},
-        {"sha": "31ae963", "phase": "P4", "summary": "G3 の指摘（README の自己矛盾・項番・版数）を反映した（4回目）"},
-        {"sha": "988c971", "phase": "P4", "summary": "G3 の参考所見（Design Spec の PROP 表など）を反映した（5回目）"},
-        {"sha": "9d50420", "phase": "P4", "summary": "CI（外側のループ）で見つかった整形漏れを直した"}
+        {
+          "sha": "b4eb1c6",
+          "split_by_phase": true,
+          "summary": "Spec 改訂・タスク定義・hold-out 受入テストを1つのコミットでまとめて入れた（Phase ごとに分けて表示）"
+        },
+        {
+          "sha": "18f79de"
+        },
+        {
+          "sha": "497b1c8"
+        },
+        {
+          "sha": "923087d",
+          "phase": "P4",
+          "summary": "mutation testing で見つかったテストの穴を塞いだ"
+        },
+        {
+          "sha": "32bcc82",
+          "phase": "P4",
+          "summary": "G3 の指摘を受けて、取り残した工程成果物を更新した（指摘 1回目）"
+        },
+        {
+          "sha": "188fe1d",
+          "phase": "P4",
+          "summary": "G3 の再指摘（監査記録の定義と順序）を反映した（2回目）"
+        },
+        {
+          "sha": "9586a14",
+          "phase": "P4",
+          "summary": "G3 の指摘（トレーサビリティとシステム化業務説明）を反映した（3回目）"
+        },
+        {
+          "sha": "31ae963",
+          "phase": "P4",
+          "summary": "G3 の指摘（README の自己矛盾・項番・版数）を反映した（4回目）"
+        },
+        {
+          "sha": "988c971",
+          "phase": "P4",
+          "summary": "G3 の参考所見（Design Spec の PROP 表など）を反映した（5回目）"
+        },
+        {
+          "sha": "9d50420",
+          "phase": "P4",
+          "summary": "CI（外側のループ）で見つかった整形漏れを直した"
+        }
       ]
     }
   ],
   "approvals": [],
   "sessions": [],
   "evidence": [
-    {"task": "TASK-MB-007", "iteration": "2026-09-21 TASK-MB-007", "phase": "P4"}
+    {
+      "task": "TASK-MB-007",
+      "iteration": "2026-09-21 TASK-MB-007",
+      "phase": "P4"
+    }
   ],
   "gate_history": [
-    {"since": "2026-09-21T00:00:00Z", "task": "TASK-MB-007", "iteration": "2026-09-21 TASK-MB-007", "phase": "P4"}
+    {
+      "since": "2026-09-21T00:00:00Z",
+      "task": "TASK-MB-007",
+      "iteration": "2026-09-21 TASK-MB-007",
+      "phase": "P4"
+    }
+  ],
+  "requirements": [
+    {
+      "sha": "2b5689f",
+      "phase": "P1",
+      "iteration": "2026-09-18 初版",
+      "actor": {
+        "kind": "human"
+      },
+      "summary": "要求 Spec の要件（REQ）と性質（PROP）を登録した"
+    },
+    {
+      "sha": "b4eb1c6",
+      "phase": "P1",
+      "iteration": "2026-09-21 TASK-MB-007"
+    }
+  ],
+  "traceability": [
+    {
+      "sha": "e62f3db",
+      "phase": "P5",
+      "iteration": "2026-09-18 初版",
+      "actor": {
+        "kind": "human"
+      },
+      "summary": "トレーサビリティ（要件 ⇔ テスト ⇔ 実装）を作成した"
+    },
+    {
+      "sha": "9586a14",
+      "phase": "P5",
+      "iteration": "2026-09-21 TASK-MB-007"
+    }
   ]
 }

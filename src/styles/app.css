@@ -304,3 +304,9 @@ tr.warn td { color: var(--danger); }
 }
 .now-headline.now-empty { margin: 0.1rem 0 0.2rem; }
 .reopened.is-empty { visibility: hidden; }
+.tag-added { font-size: 0.7rem; padding: 0 0.35rem; border-radius: 4px; background: var(--accent); color: #fff; }
+tr.added td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+tr.untraced td { background: color-mix(in srgb, var(--danger) 9%, transparent); }
+.trace-warn { color: var(--danger); font-weight: 700; }
+.trace-ok { color: var(--ok); font-weight: 700; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; word-break: break-word; }
