@@ -75,9 +75,9 @@ describe("再生操作", () => {
   it("キー操作と位置の表示", async () => {
     renderAt("#/");
     await userEvent.keyboard("{ArrowRight}{ArrowRight}{ArrowLeft}");
-    expect(screen.getByText(`1 / ${TOTAL}`)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(`1 / ${TOTAL}`);
     await userEvent.keyboard("{End}");
-    expect(screen.getByText(`${TOTAL} / ${TOTAL}`)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(`${TOTAL} / ${TOTAL}`);
   });
 
   it("スライダーに統制ポイントの印を付ける", () => {
