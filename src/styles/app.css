@@ -77,7 +77,10 @@ a { color: var(--accent); }
   border-radius: 999px; font-weight: 700; font-size: 0.85rem;
 }
 .program { color: var(--muted); font-size: 0.85rem; margin-left: auto !important; }
-.guide-button { margin-left: 0.3rem; }
+.guide-button {
+  margin-left: 0.3rem; font: inherit; font-size: 0.82rem; padding: 0.25rem 0.7rem; border-radius: 999px;
+  border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer;
+}
 
 .sidebar { grid-area: side; overflow: auto; background: var(--panel); border-right: 1px solid var(--line); padding: 0.9rem 0.7rem; }
 main { grid-area: main; overflow: auto; padding: 1rem 1.2rem 2rem; min-width: 0; }
@@ -131,20 +134,50 @@ main { grid-area: main; overflow: auto; padding: 1rem 1.2rem 2rem; min-width: 0;
 .mini { width: 1.1rem; height: 0.35rem; border-radius: 2px; background: var(--line); }
 .mini.status-in_progress { background: var(--accent); }
 .mini.status-approved { background: var(--ok); }
-.alert-count { font-size: 0.72rem; color: var(--danger); margin-left: 1rem; font-weight: 700; }
 .nav-home { margin-bottom: 0.5rem; font-size: 0.88rem; }
 .screen-nav { border-top: 1px solid var(--line); padding-top: 0.7rem; }
-.screen-nav a { font-size: 0.88rem; }
+.screen-nav a { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 0.88rem; }
+.screen-count { font-size: 0.72rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 999px; padding: 0 0.4rem; }
 
-/* --- いま起きたこと --- */
-.now { background: var(--panel); border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: var(--radius); padding: 0.8rem 1rem; margin-bottom: 1.1rem; box-shadow: var(--shadow); }
-.now-control { border-left-color: var(--danger); background: linear-gradient(90deg, var(--control-bg), var(--panel) 60%); }
-.now h2 { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem; }
-.now-meta { display: flex; gap: 0.35rem; align-items: center; margin: 0 0 0.3rem; flex-wrap: wrap; }
-.now-headline { font-size: 1.12rem; font-weight: 700; margin: 0.1rem 0 0.2rem; }
-.now-detail { margin: 0.1rem 0; color: var(--muted); font-size: 0.9rem; }
-.now-hub { margin: 0.5rem 0 0; padding: 0.45rem 0.6rem; background: color-mix(in srgb, var(--danger) 8%, transparent); border-radius: 6px; font-size: 0.9rem; }
-.now-empty { margin: 0; color: var(--muted); }
+/* --- いま起きたこと（ヘッダ帯付きカード） ---
+   欄の高さは出来事の内容に依らず一定にする（REQ-022）。--lh は行の高さ */
+.now {
+  --lh: 1.5;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0; margin-bottom: 1.1rem; box-shadow: var(--shadow); overflow: hidden;
+}
+.now.now-control { border-color: color-mix(in srgb, var(--danger) 35%, var(--panel)); }
+.now-band {
+  display: flex; align-items: center; gap: 0.6rem; height: 2rem; margin: 0;
+  padding: 0 1rem; font-size: 0.82rem; font-weight: 700;
+  background: var(--bg); color: var(--muted);
+}
+.now-band.band-control { background: var(--danger); color: #fff; }
+.now-band .help { border-color: currentColor; color: currentColor; }
+.band-pos { font-weight: 400; opacity: 0.9; }
+.band-time { margin-left: auto; font-weight: 400; font-variant-numeric: tabular-nums; }
+.now-body { padding: 0.75rem 1rem 0.9rem; }
+.now-meta { display: flex; gap: 0.35rem; align-items: center; margin: 0 0 0.3rem; flex-wrap: wrap; height: 1.5rem; overflow: hidden; }
+.now-headline {
+  font-size: 1.12rem; font-weight: 700; margin: 0.1rem 0 0.2rem;
+  line-height: var(--lh); height: calc(2 * var(--lh) * 1.12rem);
+}
+.now-headline.now-empty { font-size: 0.95rem; font-weight: 400; color: var(--muted); }
+.now-detail { margin: 0.1rem 0; color: var(--muted); font-size: 0.9rem; line-height: var(--lh); height: calc(2 * var(--lh) * 0.9rem); }
+/* 「Hub の判断」欄：本文2行＋リンク1行で高さを固定する */
+.now-hub {
+  margin: 0.5rem 0 0; padding: 0.45rem 0.6rem; border-radius: 6px; font-size: 0.9rem;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.6rem; align-items: start;
+  grid-template-rows: calc(2 * var(--lh) * 0.9rem) 1.2rem;
+  height: calc(2 * var(--lh) * 0.9rem + 1.2rem + 0.9rem);
+  line-height: var(--lh); box-sizing: border-box;
+}
+.now-hub.is-empty { visibility: hidden; }
+.judge-label { color: var(--danger); white-space: nowrap; }
+.judge-text { grid-column: 2; grid-row: 1; }
+.judge-next { all: unset; cursor: pointer; grid-column: 2; grid-row: 2; justify-self: start; color: var(--accent); font-size: 0.8rem; }
+.judge-next:focus-visible { outline: 2px solid var(--accent); }
 
 /* --- 案件一覧 --- */
 .lead { color: var(--muted); margin: 0 0 0.9rem; font-size: 0.92rem; }
@@ -162,7 +195,8 @@ main { grid-area: main; overflow: auto; padding: 1rem 1.2rem 2rem; min-width: 0;
 .seg { flex: 1; text-align: center; font-size: 0.68rem; padding: 0.12rem 0; border-radius: 4px; background: var(--line); color: var(--muted); }
 .seg.status-in_progress { background: var(--accent); color: #fff; }
 .seg.status-approved { background: var(--ok); color: #fff; }
-.alerts { list-style: none; padding: 0; margin: 0.2rem 0 0; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+/* 注意が無いときも場所を確保し、カードの高さを変えない（REQ-022） */
+.alerts { list-style: none; padding: 0; margin: 0.2rem 0 0; display: flex; flex-wrap: wrap; gap: 0.3rem; min-height: 3.4rem; align-content: flex-start; }
 .alerts li { font-size: 0.75rem; color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); padding: 0.05rem 0.45rem; border-radius: 999px; font-weight: 600; }
 
 /* --- 案件の画面 --- */
@@ -202,10 +236,10 @@ tr.warn td { color: var(--danger); }
 
 /* --- 出来事の記録 --- */
 .legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.7rem; font-size: 0.74rem; color: var(--muted); background: var(--bg); border-radius: 8px; padding: 0.45rem 0.55rem; margin-bottom: 0.5rem; }
-.filters { display: flex; gap: 0.9rem; font-size: 0.82rem; margin-bottom: 0.4rem; }
+.filters { display: flex; gap: 0.3rem; flex-wrap: wrap; font-size: 0.82rem; margin-bottom: 0.4rem; }
 .events { list-style: none; padding: 0; margin: 0; }
 .events li { border-bottom: 1px solid var(--line); }
-.events li.control { background: var(--control-bg); border-left: 3px solid var(--danger); }
+.events li.control { background: var(--control-bg); border-left: 3px solid var(--danger); border-radius: 0 8px 8px 0; }
 .event-row { all: unset; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 0.4rem; padding: 0.45rem 0.4rem; width: 100%; box-sizing: border-box; font-size: 0.8rem; }
 .event-row:focus-visible { outline: 2px solid var(--accent); }
 .event-time { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -227,12 +261,15 @@ tr.warn td { color: var(--danger); }
 .player-track input { width: 100%; }
 .marks { position: absolute; left: 0.45rem; right: 0.45rem; top: 0; height: 0.5rem; }
 .mark { position: absolute; top: 0; width: 3px; height: 0.5rem; background: var(--danger); border-radius: 1px; transform: translateX(-1px); }
-.player-info { display: flex; flex-direction: column; font-size: 0.78rem; line-height: 1.3; }
+.player-info { display: flex; flex-direction: column; font-size: 0.78rem; line-height: 1.3; width: 11.5rem; flex: none; white-space: nowrap; }
+.player-info .time { overflow: hidden; text-overflow: ellipsis; }
 .position { font-variant-numeric: tabular-nums; font-weight: 700; }
 .time { color: var(--muted); }
-.speed { border: none; display: flex; gap: 0.4rem; padding: 0; margin: 0; font-size: 0.82rem; align-items: center; white-space: nowrap; }
-.speed legend, .speed label { white-space: nowrap; }
-.speed legend { float: left; margin-right: 0.2rem; color: var(--muted); }
+.speed { display: flex; gap: 0.3rem; font-size: 0.82rem; align-items: center; white-space: nowrap; }
+.speed-label { color: var(--muted); }
+.speed .segment { font-size: 0.76rem; padding: 0.1rem 0.5rem; }
+/* スライダーの両端に、記録の最初と最後の日付を出す */
+.track-ends { display: flex; justify-content: space-between; margin: 0; font-size: 0.68rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 @media (max-width: 1100px) {
   .shell { grid-template-columns: 13rem minmax(0, 1fr); grid-template-areas: "top top" "side main" "time time" "player player"; grid-template-rows: auto minmax(0, 1fr) 16rem auto; }
@@ -294,7 +331,6 @@ tr.warn td { color: var(--danger); }
 .help-bubble { top: 1.6rem; left: -1rem; width: 20rem; display: block; font-size: 0.84rem; line-height: 1.55; }
 .help-bubble strong { display: block; margin-bottom: 0.2rem; }
 .help-text { display: block; }
-.guide-button { font: inherit; font-size: 0.82rem; padding: 0.25rem 0.7rem; border-radius: 999px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
 .tour { max-width: calc(100vw - 1rem); }
 .player .help { vertical-align: 0; }
 .player button.help { min-width: 1.15rem; height: 1.15rem; border-radius: 50%; border: 1px solid var(--muted); background: transparent; color: var(--muted); }
@@ -305,30 +341,16 @@ tr.warn td { color: var(--danger); }
 
 /* --- 再生中に配置を動かさない（REQ-022） --- */
 .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.now { --lh: 1.5; }
-.now-meta { height: 1.5rem; overflow: hidden; }
-.now-headline { line-height: var(--lh); height: calc(2 * var(--lh) * 1.12rem); }
-.now-headline.now-empty { font-size: 0.95rem; font-weight: 400; color: var(--muted); height: calc(2 * var(--lh) * 1.12rem); }
-.now-detail { line-height: var(--lh); height: calc(2 * var(--lh) * 0.9rem); margin: 0.1rem 0 !important; }
-.now-hub { line-height: var(--lh); height: calc(2 * var(--lh) * 0.9rem + 0.9rem); box-sizing: border-box; }
-.now-hub.is-empty { visibility: hidden; }
-.player-info { width: 11.5rem; flex: none; white-space: nowrap; }
-.player-info .time { overflow: hidden; text-overflow: ellipsis; }
-.alert-count.is-empty { visibility: hidden; }
-.alert-count { display: block; }
 .badge-slot { display: block; min-height: 1.1rem; }
 .sidebar .badge-slot:empty { min-height: 0; }
 .status-line { -webkit-line-clamp: 1; height: 1.6rem; }
-.alerts { min-height: 3.4rem; align-content: flex-start; }
 @media (max-width: 720px) {
   /* 狭い画面は1行に入る字数が少ない。欄の高さは固定したまま、入りきらない文は中で繰れるようにする（REQ-022） */
   .now-headline, .now-headline.now-empty { display: block; -webkit-line-clamp: unset; height: calc(2 * var(--lh) * 1.12rem); overflow-y: auto; }
   .now-detail { display: block; -webkit-line-clamp: unset; height: calc(3 * var(--lh) * 0.9rem); overflow-y: auto; }
-  .now-hub { height: calc(2 * var(--lh) * 0.9rem + 1.7rem); }
   .now-hub .judge-text { -webkit-line-clamp: 2; }
   .player-info { width: auto; }
 }
-.now-headline.now-empty { margin: 0.1rem 0 0.2rem; }
 /* 印が無いときも場所を残し、再生中にカードの高さを変えない（REQ-022）。
    .mark は再生バーの停止位置の印に使っているので、工程の印は別の名前にする */
 .phase-mark.is-empty { visibility: hidden; }
@@ -353,36 +375,11 @@ tr.untraced td { background: color-mix(in srgb, var(--danger) 9%, transparent); 
 .trace-ok { color: var(--ok); font-weight: 700; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; word-break: break-word; }
 
-/* --- いま起きたこと：ヘッダ帯付きカード（デザインレビュー①） --- */
-.now { padding: 0; border-left: 1px solid var(--line); overflow: hidden; }
-.now.now-control { border-color: color-mix(in srgb, var(--danger) 35%, var(--panel)); background: var(--panel); }
-.now-band {
-  display: flex; align-items: center; gap: 0.6rem; height: 2rem; margin: 0;
-  padding: 0 1rem; font-size: 0.82rem; font-weight: 700;
-  background: var(--bg); color: var(--muted);
-}
-.now-band.band-control { background: var(--danger); color: #fff; }
-.band-pos { font-weight: 400; opacity: 0.9; }
-.band-time { margin-left: auto; font-weight: 400; font-variant-numeric: tabular-nums; }
-.now-band .help { border-color: currentColor; color: currentColor; }
-.now-body { padding: 0.75rem 1rem 0.9rem; }
-.now-hub { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.6rem; align-items: baseline; }
-.judge-label { color: var(--danger); white-space: nowrap; }
-.judge-next { all: unset; cursor: pointer; grid-column: 2; color: var(--accent); font-size: 0.8rem; }
-.judge-next:focus-visible { outline: 2px solid var(--accent); }
 .next-control { min-width: 7rem !important; border-color: var(--danger) !important; color: var(--danger); font-size: 0.82rem; }
 .next-control:disabled { opacity: 0.4; cursor: default; }
 .guide-points { list-style: none; padding: 0; margin: 0.2rem 0 0.6rem; display: grid; gap: 0.3rem; font-size: 0.85rem; }
 .guide-points li { background: rgb(255 255 255 / 8%); border-radius: 6px; padding: 0.3rem 0.5rem; }
 .guide-points li.control { background: color-mix(in srgb, var(--danger) 30%, transparent); }
-/* 「Hub の判断」欄：本文2行＋リンク1行で高さを固定する（REQ-022） */
-.now-hub {
-  grid-template-rows: calc(2 * var(--lh) * 0.9rem) 1.2rem;
-  height: calc(2 * var(--lh) * 0.9rem + 1.2rem + 0.9rem);
-  align-items: start;
-}
-.judge-text { grid-column: 2; grid-row: 1; }
-.judge-next { grid-row: 2; justify-self: start; }
 
 /* --- デザインレビュー②：左ナビ・履歴 --- */
 .sidebar li a { display: grid; gap: 0.15rem; }
@@ -394,11 +391,8 @@ tr.untraced td { background: color-mix(in srgb, var(--danger) 9%, transparent); 
 .stop-badge.is-empty { visibility: hidden; }
 .sidebar li.selected .stop-badge { color: #fff; background: var(--danger); }
 .project-line { font-size: 0.72rem; color: var(--muted); }
-.screen-nav a { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-.screen-count { font-size: 0.72rem; font-weight: 700; color: #fff; background: var(--danger); border-radius: 999px; padding: 0 0.4rem; }
 .timeline h2 { display: flex; align-items: baseline; gap: 0.4rem; }
 .timeline h2 .sub { font-size: 0.75rem; font-weight: 400; color: var(--muted); margin-left: auto; }
-.filters { display: flex; gap: 0.3rem; flex-wrap: wrap; }
 .segment {
   font: inherit; font-size: 0.78rem; padding: 0.15rem 0.6rem; border-radius: 999px;
   border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap;
@@ -411,7 +405,6 @@ tr.untraced td { background: color-mix(in srgb, var(--danger) 9%, transparent); 
 .event-kind { color: var(--danger); font-size: 0.75rem; }
 .event-basis { color: var(--reconstructed); font-size: 0.72rem; }
 .events li.fictional { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--fictional) 6%, transparent) 10px 12px); }
-.events li.control { border-radius: 0 8px 8px 0; }
 
 /* 履歴：広い画面では右の欄に常時出ているので、画面としては出さない（REQ-028） */
 @media (min-width: 721px) { .screen-nav .to-history { display: none; } }
