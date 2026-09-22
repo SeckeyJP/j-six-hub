@@ -5,20 +5,32 @@ import { FictionalBadge, ProvenanceBadge } from "./provenance-badge";
 
 const EMPTY_TEXT = "▶ を押すと再生します（→ キーで1つずつ）。3つの案件の出来事が、起きた順に再生されます。";
 
+function formatTime(ts: string): string {
+  return `${ts.slice(0, 10)} ${ts.slice(11, 16)} UTC`;
+}
+
 /**
  * 再生位置の出来事を平易な文で説明する（REQ-019）。
- * 再生中に下の画面が上下に動かないよう、出来事の内容に依らず同じ欄を同じ高さで描画する（REQ-022）。
- * 長い文は行数を制限し、全文は title で読めるようにする。
+ * 統制が働いた場面はヘッダ帯で示し、次の停止へ移動できるようにする（REQ-025）。
+ * 出来事の内容に依らず同じ欄を同じ高さで描画する（REQ-022）。
  */
 export function NowCard({
   item,
   project,
   narration,
+  n,
+  total,
+  nextControl,
+  onSeek,
   help,
 }: {
   item: TimelineItem | null;
   project: ProjectData | null;
   narration: Narration | null;
+  n: number;
+  total: number;
+  nextControl: number | null;
+  onSeek: (n: number) => void;
   help?: ReactNode;
 }) {
   const ready = item && narration && project;
@@ -26,31 +38,41 @@ export function NowCard({
   const control = ready ? narration.control : null;
   return (
     <section aria-label="いま起きたこと" className={`now ${control ? "now-control" : ""}`} data-guide="now">
-      <h2>いま起きたこと {help}</h2>
-      <p className="now-meta" data-slot="meta">
-        {ready && (
-          <>
-            <span className="project-chip" data-project={project.id}>{project.name}</span>
-            {project.fictional && <FictionalBadge />}
-            <ProvenanceBadge value={item.event.provenance} />
-            {item.event.phase && <span className="phase-chip">{item.event.phase}</span>}
-          </>
-        )}
+      <p className={`now-band ${control ? "band-control" : ""}`} data-testid="now-band">
+        <span className="band-title">{control ? "⚑ Hub が止めた場面" : "通常の出来事"}</span>
+        <span className="band-pos">
+          いま起きたこと ・ {n} / {total}
+        </span>
+        <span className="band-time">{item ? formatTime(item.event.timestamp) : "開始前"}</span>
+        {help}
       </p>
-      <p className={`now-headline clamp ${ready ? "" : "now-empty"}`} data-slot="headline" title={ready ? narration.headline : EMPTY_TEXT}>
-        {ready ? narration.headline : EMPTY_TEXT}
-      </p>
-      <p className="now-detail clamp" data-slot="detail" title={detail}>
-        {detail}
-      </p>
-      <p className={`now-hub clamp ${control ? "" : "is-empty"}`} data-slot="hub" title={control ?? ""}>
-        {control && (
-          <>
-            <strong>Hub の統制：</strong>
-            {control}
-          </>
-        )}
-      </p>
+      <div className="now-body">
+        <p className="now-meta" data-slot="meta">
+          {ready && (
+            <>
+              <span className="project-chip" data-project={project.id}>{project.name}</span>
+              {project.fictional && <FictionalBadge />}
+              <ProvenanceBadge value={item.event.provenance} />
+              {item.event.phase && <span className="phase-chip">{item.event.phase}</span>}
+            </>
+          )}
+        </p>
+        <p className={`now-headline clamp ${ready ? "" : "now-empty"}`} data-slot="headline" title={ready ? narration.headline : EMPTY_TEXT}>
+          {ready ? narration.headline : EMPTY_TEXT}
+        </p>
+        <p className="now-detail clamp" data-slot="detail" title={detail}>
+          {detail}
+        </p>
+        <p className={`now-hub ${control ? "" : "is-empty"}`} data-slot="hub" data-testid="now-judge" title={control ?? ""}>
+          <strong className="judge-label">Hub の判断</strong>
+          <span className="judge-text clamp">{control}</span>
+          {control && nextControl !== null && (
+            <button type="button" className="judge-next" onClick={() => onSeek(nextControl)}>
+              次の停止 ({nextControl}) へ ▶
+            </button>
+          )}
+        </p>
+      </div>
     </section>
   );
 }
