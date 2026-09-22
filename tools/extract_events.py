@@ -117,7 +117,8 @@ def phase_for_artifacts(artifacts: list[str]) -> str | None:
     return f"P{max(phases)}" if phases else None
 
 
-_TASK = re.compile(r"\[(TASK-[A-Z]+-\d+)\]")
+# 「[TASK-AW-002] …」（approval-workflow）と「TASK-MB-007: …」（monthly-billing）の両方の書き方がある
+_TASK = re.compile(r"\[(TASK-[A-Z]+-\d+)\]|^(TASK-[A-Z]+-\d+):")
 _STEPS = [(r"hold-out", "holdout"), (r"\bRed\b", "red"), (r"\bGreen\b", "green"), (r"^refactor", "refactor")]
 
 
@@ -125,10 +126,11 @@ def task_and_step(subject: str) -> tuple[str | None, str | None]:
     m = _TASK.search(subject)
     if not m:
         return None, None
+    task = m.group(1) or m.group(2)
     for pattern, step in _STEPS:
         if re.search(pattern, subject):
-            return m.group(1), step
-    return m.group(1), None
+            return task, step
+    return task, None
 
 
 def _utc(ts: str) -> str:
@@ -172,6 +174,8 @@ def _commit_event(sha: str, date: str, subject: str, files: list[str], c: dict,
     artifacts = sorted({a for a in map(artifact_for_path, files) if a},
                        key=lambda a: (_ARTIFACT_PHASE[a], a))
     task, step = task_and_step(subject)
+    if split_of and phase != "P4":
+        step = None  # squash されたコミットを分けた場合、TDD の工程は P4 の部分にだけ付ける
     # tdd-cycle だけにコミットを許可していた（J-SIX docs/plugin-field-test-01.md §1）。
     # タスク ID 付きのコミットは AI、それ以外は人間とする
     actor = {"kind": "ai", "role": "ai_agent"} if task else {"kind": "human"}
@@ -427,6 +431,42 @@ def evidence_events(project: Path, task: str, meta: dict) -> list[dict]:
                   source={"kind": "report", "ref": rel})]
 
 
+# --- ゲート失敗の履歴（reports/gate-history.jsonl） ---------------------------
+
+def gate_history_events(project: Path, item: dict) -> list[dict]:
+    """ゲートを手動・CI で実行した結果の履歴を gate.evaluated にする。
+
+    J-SIX の品質ゲートのランナーは失敗をすべて、成功は回復時だけ記録する。
+    details（ファイル一覧など）はローカルのパスを含みうるため持ち出さない。
+    """
+    rel = "reports/gate-history.jsonl"
+    since = item.get("since", "")
+    events = []
+    for line in (project / rel).read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        at = _utc(rec["at"])
+        if at < since:
+            continue
+        results = []
+        for key in rec.get("failed", []):
+            layer, _, check = key.partition(".")
+            summary = rec.get("summaries", {}).get(check, "")
+            if summary.startswith(f"{check}: "):
+                summary = summary[len(check) + 2:]
+            results.append({"layer": layer.upper(), "check": check, "status": "failed", "summary": scrub(summary)})
+        outcome = "passed" if rec.get("ok") else "failed"
+        failed = ", ".join(r["check"] for r in results)
+        events.append(_base(rec["at"], item, type="gate.evaluated",
+                            actor={"kind": "system", "role": "automation"},
+                            summary="品質ゲートを通過した（回復）" if outcome == "passed" else f"品質ゲートが未達（{failed}）",
+                            payload={"gate": "task_quality_gate", "trigger": "gate_run", "outcome": outcome,
+                                     "mode": rec.get("mode"), "results": results},
+                            source={"kind": "report", "ref": rel}))
+    return events
+
+
 # --- 再構成イベント -----------------------------------------------------------
 
 def load_reconstructed(path: Path) -> list[dict]:
@@ -474,46 +514,60 @@ def assemble(events: list[dict]) -> list[dict]:
 
 # --- 実行 ---------------------------------------------------------------------
 
-def build(jsix_repo: Path, sessions_dir: Path, sources: dict) -> list[dict]:
+def load_projects() -> dict:
+    return json.loads((DATA / "projects.json").read_text(encoding="utf-8"))
+
+
+def build(jsix_repo: Path, sessions_dir: Path | None, project: dict) -> list[dict]:
+    """1案件分のイベントを作る。架空の案件は再構成イベントだけからなる。"""
+    pdir = DATA / "projects" / project["id"]
+    events: list[dict] = load_reconstructed(pdir / "reconstructed.json")
+    if project.get("fictional"):
+        return assemble(events)
+    sources = json.loads((pdir / "sources.json").read_text(encoding="utf-8"))
     project_dir = sources["project_dir"]
-    events: list[dict] = []
     for group in sources["commits"]:
         events += commit_events(jsix_repo, project_dir, [{**c, "iteration": group["iteration"]}
                                                          for c in group["items"]])
     events += approval_events(jsix_repo, project_dir, sources.get("approvals", []))
-    for s in sources["sessions"]:
-        path = sessions_dir / f"{s['id']}.jsonl"
-        events += session_events(path, s)
-    for r in sources["evidence"]:
+    if sources.get("sessions"):
+        if sessions_dir is None:
+            raise SystemExit(f"{project['id']} はセッション記録を使う。--sessions を指定すること")
+        for s in sources["sessions"]:
+            events += session_events(sessions_dir / f"{s['id']}.jsonl", s)
+    for r in sources.get("evidence", []):
         events += evidence_events(jsix_repo / project_dir, r["task"], r)
-    events += load_reconstructed(DATA / "reconstructed.json")
+    for h in sources.get("gate_history", []):
+        events += gate_history_events(jsix_repo / project_dir, h)
     return assemble(events)
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--jsix-repo", type=Path, required=True)
-    ap.add_argument("--sessions", type=Path, required=True)
-    ap.add_argument("--out", type=Path, default=DATA / "events.jsonl")
-    ap.add_argument("--check", action="store_true", help="生成結果が --out と一致しなければ 1 で終了")
+    ap.add_argument("--sessions", type=Path, help="セッション記録のディレクトリ（approval-workflow で使う）")
+    ap.add_argument("--check", action="store_true", help="生成結果が既存の events.jsonl と一致しなければ 1 で終了")
     args = ap.parse_args(argv)
 
-    sources = json.loads((DATA / "sources.json").read_text(encoding="utf-8"))
-    events = build(args.jsix_repo, args.sessions.expanduser(), sources)
-    problems = privacy_problems(events)
-    if problems:
-        for p in problems:
-            print(p, file=sys.stderr)
-        return 1
-    text = "".join(json.dumps(ev, ensure_ascii=False) + "\n" for ev in events)
-    if args.check:
-        same = args.out.exists() and args.out.read_text(encoding="utf-8") == text
-        print("一致" if same else f"{args.out} と一致しない", file=sys.stderr)
-        return 0 if same else 1
-    args.out.write_text(text, encoding="utf-8")
-    measured = sum(ev["provenance"] == "measured" for ev in events)
-    print(f"{len(events)} 件（実測 {measured} / 再構成 {len(events) - measured}）→ {args.out}")
-    return 0
+    status = 0
+    for project in load_projects()["projects"]:
+        events = build(args.jsix_repo, args.sessions.expanduser() if args.sessions else None, project)
+        problems = privacy_problems(events)
+        if problems:
+            for p in problems:
+                print(f"{project['id']}: {p}", file=sys.stderr)
+            return 1
+        out = DATA / "projects" / project["id"] / "events.jsonl"
+        text = "".join(json.dumps(ev, ensure_ascii=False) + "\n" for ev in events)
+        if args.check:
+            same = out.exists() and out.read_text(encoding="utf-8") == text
+            print(f"{project['id']}: {'一致' if same else '一致しない'}", file=sys.stderr)
+            status = status or (0 if same else 1)
+            continue
+        out.write_text(text, encoding="utf-8")
+        measured = sum(ev["provenance"] == "measured" for ev in events)
+        print(f"{project['id']}: {len(events)} 件（実測 {measured} / 再構成 {len(events) - measured}）")
+    return status
 
 
 if __name__ == "__main__":

@@ -1,100 +1,103 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../app";
-import { events, processDef } from "../data";
+import { processDef, program } from "../data";
+import { controlPointsOf } from "../replay/narrate";
 
-const ROUTES = ["#/", "#/board", "#/tasks", "#/gates", "#/approvals", "#/evidence"];
+const TOTAL = program.timeline.length;
+const NOTICE = "リプレイ（実際の AI は動作していません）";
 
 function renderAt(hash: string) {
   window.location.hash = hash;
-  return render(<App events={events} process={processDef} />);
+  return render(<App data={program} process={processDef} guideAutoStart={false} />);
 }
 
 afterEach(() => {
   window.location.hash = "";
 });
 
+const ROUTES = ["#/", ...program.projects.flatMap((p) => ["board", "tasks", "gates", "approvals", "evidence"].map((s) => `#/p/${p.id}/${s}`))];
+
 describe("共通レイアウト", () => {
   it.each(ROUTES)("AC-001: %s にリプレイの表示がある", (hash) => {
     renderAt(hash);
-    expect(screen.getByText("リプレイ（実際の AI は動作していません）")).toBeInTheDocument();
+    expect(screen.getByText(NOTICE)).toBeInTheDocument();
   });
 
-  it("REQ-014: プロセス定義の出典（J-SIX・ライセンス・版）を表示する", () => {
+  it("REQ-014: プロセス定義の出典を表示する", () => {
     renderAt("#/");
-    const footer = screen.getByRole("contentinfo");
-    expect(footer).toHaveTextContent("J-SIX");
-    expect(footer).toHaveTextContent("CC BY 4.0");
-    expect(footer).toHaveTextContent(processDef._source.tag);
+    const credit = screen.getByText(/CC BY 4.0/);
+    expect(credit).toHaveTextContent(processDef._source.tag);
   });
 
-  it("ナビゲーションで画面を切り替える", async () => {
+  it("Program が説明用の架空のまとまりであることを示す", () => {
     renderAt("#/");
+    expect(screen.getByRole("banner")).toHaveTextContent(program.program.name);
+    expect(within(screen.getByRole("banner")).getByText("架空")).toBeInTheDocument();
+  });
+});
+
+describe("案件のナビゲーション", () => {
+  it("左の一覧に全案件があり、選ぶと Phase ボードを開く", async () => {
+    renderAt("#/");
+    const nav = screen.getByRole("navigation", { name: "案件" });
+    for (const p of program.projects) expect(within(nav).getByRole("link", { name: new RegExp(p.name) })).toBeInTheDocument();
+    await userEvent.click(within(nav).getByRole("link", { name: /月次請求書発行/ }));
+    expect(window.location.hash).toBe("#/p/monthly-billing/board");
+  });
+
+  it("選んだ案件の画面を切り替えられる", async () => {
+    renderAt("#/p/approval-workflow/board");
     await userEvent.click(screen.getByRole("link", { name: "承認" }));
-    expect(window.location.hash).toBe("#/approvals");
+    expect(window.location.hash).toBe("#/p/approval-workflow/approvals");
+  });
+
+  it("REQ-016: 架空の案件の画面には常に架空と表示する", () => {
+    renderAt("#/p/order-integration/board");
+    expect(screen.getByRole("main")).toHaveTextContent("この案件は架空のシナリオです");
   });
 });
 
 describe("再生操作", () => {
   it("AC-003: 1イベント進めて戻すと、元と同じ表示になる", async () => {
-    renderAt("#/");
+    renderAt("#/p/approval-workflow/board");
     const next = screen.getByRole("button", { name: "1イベント進む" });
     await userEvent.click(next);
     await userEvent.click(next);
-    const before = screen.getByRole("main").textContent + screen.getByRole("complementary").textContent;
+    const before = screen.getByRole("main").textContent;
     await userEvent.click(next);
     await userEvent.click(screen.getByRole("button", { name: "1イベント戻る" }));
-    expect(screen.getByRole("main").textContent + screen.getByRole("complementary").textContent).toBe(before);
+    expect(screen.getByRole("main").textContent).toBe(before);
   });
 
-  it("位置を n / 全件で表示する", async () => {
-    renderAt("#/");
-    expect(screen.getByText(`0 / ${events.length}`)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "末尾へ" }));
-    expect(screen.getByText(`${events.length} / ${events.length}`)).toBeInTheDocument();
-  });
-
-  it("キー操作: → で進み、← で戻り、End で末尾、Home で先頭", async () => {
+  it("キー操作と位置の表示", async () => {
     renderAt("#/");
     await userEvent.keyboard("{ArrowRight}{ArrowRight}{ArrowLeft}");
-    expect(screen.getByText(`1 / ${events.length}`)).toBeInTheDocument();
+    expect(screen.getByText(`1 / ${TOTAL}`)).toBeInTheDocument();
     await userEvent.keyboard("{End}");
-    expect(screen.getByText(`${events.length} / ${events.length}`)).toBeInTheDocument();
-    await userEvent.keyboard("{Home}");
-    expect(screen.getByText(`0 / ${events.length}`)).toBeInTheDocument();
+    expect(screen.getByText(`${TOTAL} / ${TOTAL}`)).toBeInTheDocument();
   });
 
-  it("速度を選べる", async () => {
+  it("スライダーに統制ポイントの印を付ける", () => {
     renderAt("#/");
-    await userEvent.click(screen.getByRole("radio", { name: "×16" }));
-    expect(screen.getByRole("radio", { name: "×16" })).toBeChecked();
+    const marks = within(screen.getByRole("group", { name: "再生操作" })).getAllByTestId("control-mark");
+    expect(marks).toHaveLength(controlPointsOf(program, processDef).size);
   });
 });
 
-describe("イベントの一覧", () => {
-  it("REQ-002: 各イベントに実測／再構成のラベルがある", async () => {
+describe("いま起きたこと", () => {
+  it("REQ-019: 再生位置の出来事を説明し、統制ポイントでは Hub の統制を示す", async () => {
     renderAt("#/");
-    await userEvent.keyboard("{End}");
-    const list = within(screen.getByRole("complementary")).getAllByRole("listitem");
-    expect(list).toHaveLength(events.length);
-    for (const item of list) expect(item.textContent).toMatch(/実測|再構成/);
+    const key = [...controlPointsOf(program, processDef).keys()][0]!;
+    const index = program.timeline.findIndex((t) => t.key === key) + 1;
+    for (let i = 0; i < index; i += 1) await userEvent.keyboard("{ArrowRight}");
+    const now = screen.getByRole("region", { name: "いま起きたこと" });
+    expect(now).toHaveTextContent("Hub の統制");
   });
 
-  it("AC-002: 再構成のイベントを選ぶと根拠を表示する", async () => {
+  it("再生前は操作の案内を出す", () => {
     renderAt("#/");
-    await userEvent.keyboard("{End}");
-    const target = events.find((e) => e.provenance === "reconstructed")!;
-    await userEvent.click(screen.getByRole("button", { name: new RegExp(`${target.id}`) }));
-    const detail = screen.getByRole("region", { name: "イベントの詳細" });
-    expect(detail).toHaveTextContent(target.basis!);
-  });
-
-  it("n 件目までのイベントだけを表示する", async () => {
-    renderAt("#/");
-    await act(async () => {
-      await userEvent.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
-    });
-    expect(within(screen.getByRole("complementary")).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByRole("region", { name: "いま起きたこと" })).toHaveTextContent("▶");
   });
 });

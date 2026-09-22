@@ -1,47 +1,103 @@
 import { useEffect, useMemo } from "react";
+import { controlPointsOf, narrate } from "./replay/narrate";
+import { replayProgram } from "./replay/program";
 import { replay } from "./replay/replay";
-import type { HubEvent } from "./types/events";
+import type { ProgramData } from "./types/program";
 import type { ProcessDefinition } from "./types/process";
-import { EventList } from "./ui/event-list";
-import { ReplayControls } from "./ui/replay-controls";
-import { ROUTES, Screen } from "./ui/screens";
+import { HelpTip, Tour, useGuide } from "./ui/guide";
+import { NowCard } from "./ui/now-card";
+import { PlayerBar } from "./ui/player-bar";
+import { FictionalBadge } from "./ui/provenance-badge";
+import { parseRoute } from "./ui/route";
+import { Home } from "./ui/screens/home";
+import { ProjectScreen } from "./ui/screens/project";
+import { Sidebar } from "./ui/sidebar";
+import { Timeline } from "./ui/timeline";
 import { useHashRoute } from "./ui/use-hash-route";
 import { usePlayer, type Player } from "./ui/use-player";
 
 export const REPLAY_NOTICE = "リプレイ（実際の AI は動作していません）";
 
-export function App({ events, process }: { events: HubEvent[]; process: ProcessDefinition }) {
-  const player = usePlayer(events.length);
-  const route = useHashRoute();
-  const state = useMemo(() => replay(events, process, player.n), [events, process, player.n]);
+export interface AppProps {
+  data: ProgramData;
+  process: ProcessDefinition;
+  /** 初回表示でガイドツアーを始めるか（テストでは止める） */
+  guideAutoStart?: boolean;
+}
+
+export function App({ data, process, guideAutoStart = true }: AppProps) {
+  const player = usePlayer(data.timeline.length);
+  const guide = useGuide(guideAutoStart);
+  const route = parseRoute(useHashRoute());
+  const state = useMemo(() => replayProgram(data, process, player.n), [data, process, player.n]);
+  const controlPoints = useMemo(() => controlPointsOf(data, process), [data, process]);
   useKeyboard(player);
 
+  const current = state.current;
+  const currentProject = current ? (data.projects.find((p) => p.id === current.project) ?? null) : null;
+  const narration = useMemo(() => {
+    if (!current || !currentProject) return null;
+    const k = currentProject.events.indexOf(current.event);
+    return narrate(current.event, replay(currentProject.events, process, k), state.projects[current.project]!, process);
+  }, [current, currentProject, process, state]);
+
+  const selected = route.kind === "project" ? data.projects.find((p) => p.id === route.id) : undefined;
+
   return (
-    <div className="app">
-      <header>
-        <h1>J-SIX Hub</h1>
+    <div className="shell">
+      <header className="topbar">
+        <p className="brand">
+          <span className="logo">◆</span> J-SIX Hub
+        </p>
         <p className="replay-notice" role="note">
           {REPLAY_NOTICE}
         </p>
-        <ReplayControls player={player} />
-        <nav aria-label="画面">
-          {ROUTES.map((r) => (
-            <a key={r.path} href={`#${r.path}`} aria-current={route === r.path ? "page" : undefined}>
-              {r.label}
-            </a>
-          ))}
-        </nav>
-      </header>
-      <main>
-        <Screen route={route} state={state} events={events} process={process} />
-      </main>
-      <EventList events={events} n={player.n} />
-      <footer>
-        <p>
-          Phase・ゲートの定義: J-SIX プロセス定義 {process._source.tag}（{process._source.repository}、{process._source.license}）。
-          イベント: J-SIX examples/approval-workflow の実行記録から抽出した実測と、記録の無い部分を組み立てた再構成。
+        <p className="program">
+          {data.program.name} <FictionalBadge />
         </p>
+        <button type="button" className="guide-button" onClick={guide.start} aria-label="ガイドを開く">
+          ？ ガイド
+        </button>
+      </header>
+      <Sidebar data={data} state={state} route={route} help={<HelpTip id="projects" />} />
+      <main>
+        <NowCard item={current} project={currentProject} narration={narration} help={<HelpTip id="now" />} />
+        <div data-guide="screen">
+          {selected ? (
+            <ProjectScreen
+              project={selected}
+              screen={route.kind === "project" ? route.screen : "board"}
+              state={state.projects[selected.id]!}
+              process={process}
+              help={<HelpTip id="screen" />}
+            />
+          ) : (
+            <section aria-labelledby="screen-title">
+              <h2 id="screen-title">
+                すべての案件 <HelpTip id="screen" />
+              </h2>
+              <Home data={data} state={state} process={process} />
+            </section>
+          )}
+        </div>
+        <p className="credit">
+          Phase・ゲートの定義: J-SIX プロセス定義 {process._source.tag}（{process._source.repository}、{process._source.license}）。
+          出来事: J-SIX の examples（approval-workflow・monthly-billing）の実行記録から抽出した実測と、記録の無い部分を組み立てた再構成。受発注連携は架空。
+        </p>
+      </main>
+      <Timeline
+        data={data}
+        process={process}
+        n={player.n}
+        controlPoints={controlPoints}
+        projectId={selected?.id ?? null}
+        help={<HelpTip id="timeline" />}
+        legendHelp={<HelpTip id="legend" />}
+      />
+      <footer className="playerbar">
+        <PlayerBar player={player} timeline={data.timeline} controlPoints={controlPoints} help={<HelpTip id="player" />} />
       </footer>
+      <Tour guide={guide} />
     </div>
   );
 }

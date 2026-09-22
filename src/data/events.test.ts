@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseEvents } from "./events";
-import { events, processDef } from "./index";
+import { processDef, program } from "./index";
 
 const line = (seq: number, extra: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -41,9 +41,8 @@ describe("parseEvents", () => {
 });
 
 describe("同梱データ", () => {
-  it("リポジトリの events.jsonl を読める", () => {
-    expect(events.length).toBeGreaterThan(0);
-    expect(events[0]?.seq).toBe(1);
+  it("各案件の events.jsonl を読める", () => {
+    for (const p of program.projects) expect(p.events[0]?.seq).toBe(1);
   });
 
   it("固定した版のプロセス定義を読める", () => {

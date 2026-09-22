@@ -19,7 +19,7 @@ export interface PhaseView {
   approvedBy: string | null;
 }
 
-export type TaskStatus = "waiting" | "running" | "gate_checking" | "passed" | "failed";
+export type TaskStatus = "waiting" | "running" | "gate_checking" | "passed" | "failed" | "escalated" | "local_fallback";
 
 export interface AgentRun {
   agent: string;
@@ -32,6 +32,8 @@ export interface TaskView {
   /** タスク ID。記録に ID が無いタスクは null */
   id: string | null;
   label: string;
+  /** 担当のチーム・ベンダー（記録があれば） */
+  team: string | null;
   iteration: string;
   /** 投入したイベントの seq */
   dispatchedAt: number;
