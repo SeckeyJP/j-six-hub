@@ -66,7 +66,7 @@ describe("タスク", () => {
     const p = project("order-integration");
     const k = p.events.findIndex((e) => e.type === "deviation.opened" && e.payload?.deviation === "local_fallback") + 1;
     showProject("order-integration", "tasks", k);
-    expect(screen.getByRole("region", { name: /TASK-OI-001/ })).toHaveTextContent("ローカル退避中");
+    expect(screen.getByRole("region", { name: /TASK-OI-001/ })).toHaveTextContent("ローカル作業へ切替");
   });
 });
 

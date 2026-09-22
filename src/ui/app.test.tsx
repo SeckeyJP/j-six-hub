@@ -39,18 +39,19 @@ describe("共通レイアウト", () => {
 });
 
 describe("案件のナビゲーション", () => {
-  it("左の一覧に全案件があり、選ぶと Phase ボードを開く", async () => {
+  it("左の一覧に全プロジェクトがあり、選ぶと工程ボードを開く", async () => {
     renderAt("#/");
-    const nav = screen.getByRole("navigation", { name: "案件" });
+    const nav = screen.getByRole("navigation", { name: "プロジェクト" });
     for (const p of program.projects) expect(within(nav).getByRole("link", { name: new RegExp(p.name) })).toBeInTheDocument();
     await userEvent.click(within(nav).getByRole("link", { name: /月次請求書発行/ }));
-    expect(window.location.hash).toBe("#/p/monthly-billing/board");
+    expect(window.location.hash).toContain("#/p/monthly-billing/board");
   });
 
-  it("選んだ案件の画面を切り替えられる", async () => {
+  it("選んだプロジェクトの画面を切り替えられる", async () => {
     renderAt("#/p/approval-workflow/board");
-    await userEvent.click(screen.getByRole("link", { name: "承認" }));
-    expect(window.location.hash).toBe("#/p/approval-workflow/approvals");
+    const nav = screen.getByRole("navigation", { name: "画面" });
+    await userEvent.click(within(nav).getByRole("link", { name: "承認" }));
+    expect(window.location.hash).toContain("#/p/approval-workflow/approvals");
   });
 
   it("REQ-016: 架空の案件の画面には常に架空と表示する", () => {

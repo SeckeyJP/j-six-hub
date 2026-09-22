@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../app";
@@ -34,7 +34,8 @@ describe("再生位置の URL（REQ-026）", () => {
 
   it("画面を切り替えても再生位置を保つ", async () => {
     renderAt("#/p/approval-workflow/board?n=46");
-    await userEvent.click(screen.getByRole("link", { name: /承認/ }));
+    const nav = screen.getByRole("navigation", { name: "画面" });
+    await userEvent.click(within(nav).getByRole("link", { name: "承認" }));
     expect(window.location.hash).toContain("n=46");
     expect(screen.getByText(`46 / ${TOTAL}`)).toBeInTheDocument();
   });

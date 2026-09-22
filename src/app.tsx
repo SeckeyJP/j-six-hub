@@ -4,12 +4,13 @@ import { replayProgram } from "./replay/program";
 import { replay } from "./replay/replay";
 import type { ProgramData } from "./types/program";
 import type { ProcessDefinition } from "./types/process";
+import type { Route } from "./ui/route";
 import { firstHighlight, nextControl } from "./ui/control-nav";
 import { HelpTip, Tour, useGuide } from "./ui/guide";
 import { NowCard } from "./ui/now-card";
 import { PlayerBar } from "./ui/player-bar";
 import { FictionalBadge } from "./ui/provenance-badge";
-import { parseRoute } from "./ui/route";
+import { buildHash, parseRoute } from "./ui/route";
 import { Home } from "./ui/screens/home";
 import { ProjectScreen } from "./ui/screens/project";
 import { Sidebar } from "./ui/sidebar";
@@ -27,9 +28,11 @@ export interface AppProps {
 }
 
 export function App({ data, process, guideAutoStart = true }: AppProps) {
-  const player = usePlayer(data.timeline.length);
+  const hash = useHashRoute();
+  const route = parseRoute(hash);
+  const player = usePlayer(data.timeline.length, route.n);
   const guide = useGuide(guideAutoStart);
-  const route = parseRoute(useHashRoute());
+  useUrlPosition(route, player.n);
   const state = useMemo(() => replayProgram(data, process, player.n), [data, process, player.n]);
   const controlPoints = useMemo(() => controlPointsOf(data, process), [data, process]);
   const nextStop = useMemo(() => nextControl(data.timeline, controlPoints, player.n), [data.timeline, controlPoints, player.n]);
@@ -112,6 +115,16 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
       <Tour guide={guide} highlight={highlight} onSeek={player.seek} />
     </div>
   );
+}
+
+/** 再生位置を URL に反映する（履歴は汚さない。REQ-026） */
+function useUrlPosition(route: Route, n: number): void {
+  useEffect(() => {
+    const next = buildHash(route, n);
+    if (window.location.hash !== next) {
+      window.history.replaceState(null, "", next);
+    }
+  }, [route, n]);
 }
 
 /** Space: 再生／一時停止、← →: 1件、Home / End: 先頭 / 末尾。入力欄・ボタンにフォーカスがあるときは使わない */

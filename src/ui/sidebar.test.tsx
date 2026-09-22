@@ -22,7 +22,7 @@ describe("左ナビ", () => {
     const aw = row("申請承認ワークフロー");
     expect(within(aw).getByTestId("stop-badge")).toHaveTextContent("停止");
     const zero = show(0);
-    const badge = within(zero.getByRole("link", { name: /申請承認ワークフロー/ })).getByTestId("stop-badge");
+    const badge = within(within(zero.container).getByRole("link", { name: /申請承認ワークフロー/ })).getByTestId("stop-badge");
     expect(badge.className).toContain("is-empty");
   });
 
