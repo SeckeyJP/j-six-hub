@@ -53,6 +53,8 @@
 | `approvals[]` | 承認（`gate.approved`）。有効か・無効ならその理由 |
 | `deviations[]` | 逸脱。種類・開いたイベント・閉じたイベント |
 | `violations[]` | 順序違反。違反したイベントと、承認されていなかった Phase |
+| `requirements` | その時点の要件（REQ）と性質（PROP）、直前の更新で追加された ID |
+| `traceability` | 要件 ⇔ テスト ⇔ 実装（⇔ ADR）の対応と、テストが対応していない要件 |
 | `counts` | 実測・再構成の件数 |
 
 ### 3.2 規則
@@ -72,6 +74,7 @@
 | `ai.agent.started`（task あり） | 現在の工程を `payload.step` にする。G3 なら判定中にする |
 | `commit.created`（task あり） | 工程を記録する。task が無く P4 のコミットなら、同じ一周の ID なしタスクを「合格（ゲート記録なし）」にする |
 | `gate.evaluated` | 判定を記録する。task があれば、`passed` で合格、それ以外で不合格にする |
+| `requirements.updated` / `traceability.updated` | その時点の一覧で置き換える。要求にあってテストが無い要件を「テスト未対応」として数える |
 
 **per_task の Phase（P4）**は、タスクが1件以上あり全タスクが合格したとき承認済みとみなす（プロセス定義の遷移 `all_tasks_done`）。
 逆戻りで開き直した後は、**開き直した後に投入したタスク**だけで判定する（前の周に合格したタスクで完了にしない）。

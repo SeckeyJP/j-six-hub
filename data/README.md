@@ -15,9 +15,9 @@ J-SIX Hub の画面で再生する出来事（イベント）。方針は [ADR-0
 
 | 案件 | 種類 | 件数 | 出どころ |
 |---|---|---|---|
-| approval-workflow（申請承認ワークフロー） | 実データ | 82（実測 62 / 再構成 20） | J-SIX `examples/approval-workflow`。Git のコミットと承認欄、Claude Code のセッション記録、証跡パッケージ |
-| monthly-billing（月次請求書発行） | 実データ | 46（実測 30 / 再構成 16） | J-SIX `examples/monthly-billing`。Git のコミット、ゲート失敗の履歴（`reports/gate-history.jsonl`）、証跡パッケージ |
-| order-integration（受発注連携） | **架空** | 32（全件 再構成） | 複数ベンダー・Interface Contract 違反・エスカレーション・ローカル退避を説明するために作ったシナリオ |
+| approval-workflow（申請承認ワークフロー） | 実データ | 86（実測 66 / 再構成 20） | J-SIX `examples/approval-workflow`。Git のコミットと承認欄、Claude Code のセッション記録、証跡パッケージ |
+| monthly-billing（月次請求書発行） | 実データ | 50（実測 34 / 再構成 16） | J-SIX `examples/monthly-billing`。Git のコミット、ゲート失敗の履歴（`reports/gate-history.jsonl`）、証跡パッケージ |
+| order-integration（受発注連携） | **架空** | 40（全件 再構成） | 複数ベンダー・Interface Contract 違反・エスカレーション・ローカル退避を説明するために作ったシナリオ |
 
 画面は全案件のイベントを時刻順に1本にして再生する。
 
@@ -38,7 +38,7 @@ J-SIX Hub の画面で再生する出来事（イベント）。方針は [ADR-0
 ### 画面で見せたい統制の場面
 
 実測のもの：
-- approval-workflow：要件を足した直後、トレーサビリティ検査が「テストの無い要件」で AI の作業終了を15回止めた。AI が承認欄に承認を書き込んだ。P5 の承認前に P6 が始まった（順序違反）
+- approval-workflow：要件（REQ-011・012）を足した直後、その要件にテストが無いことをトレーサビリティの画面が示し、検査が AI の作業終了を15回止めた。AI が承認欄に承認を書き込んだ。P5 の承認前に P6 が始まった（順序違反）
 - monthly-billing：AI が許可範囲外の hold-out テストを変更し、G1 スコープ検査で止められた。G3 の指摘による修正が5回続いた。要求の承認前に設計まで書かれていた（順序違反）
 
 架空のもの（受発注連携）：
