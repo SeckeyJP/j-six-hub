@@ -68,3 +68,10 @@ describe("Phase ボード", () => {
     expect(shape(at(k + 1))).toContain("reopened");
   });
 });
+
+describe("いま起きたことの案内文", () => {
+  it("配置に依存する言葉を使わない", () => {
+    const { container } = render(<NowCard item={null} project={null} narration={null} />);
+    expect(container.querySelector('[data-slot="headline"]')!.textContent).not.toMatch(/下の|右の|左の/);
+  });
+});
