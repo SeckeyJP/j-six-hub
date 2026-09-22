@@ -10,10 +10,11 @@ export function nextControl(timeline: TimelineItem[], points: Map<string, Contro
   return null;
 }
 
-/** ガイドで案内する「見どころ」。テストの無い要件が生じた最初の場面 */
-export function firstHighlight(timeline: TimelineItem[], points: Map<string, ControlKind[]>): number | null {
-  for (let i = 0; i < timeline.length; i += 1) {
-    if (points.get(timeline[i]!.key)?.includes("untraced_requirement")) return i + 1;
+/** 見どころ（narrate.highlightKey）の再生位置。無ければ最初の統制ポイント */
+export function firstHighlight(timeline: TimelineItem[], points: Map<string, ControlKind[]>, key: string | null): number | null {
+  if (key) {
+    const i = timeline.findIndex((t) => t.key === key);
+    if (i >= 0) return i + 1;
   }
   return nextControl(timeline, points, 0);
 }

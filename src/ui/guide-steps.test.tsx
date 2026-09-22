@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../app";
 import { processDef, program } from "../data";
-import { controlPointsOf } from "../replay/narrate";
+import { controlPointsOf, highlightKey } from "../replay/narrate";
 import { GUIDE_STEPS } from "./guide";
 import { firstHighlight } from "./control-nav";
 
@@ -33,7 +33,7 @@ describe("ガイド（4ステップ）", () => {
   it("「見どころへ移動」で、テスト未対応の要件が生じた場面へ移動してツアーを閉じる", async () => {
     render(<App data={program} process={processDef} />);
     await userEvent.click(within(tour()).getByRole("button", { name: /見どころへ移動/ }));
-    const n = firstHighlight(program.timeline, controlPointsOf(program, processDef))!;
+    const n = firstHighlight(program.timeline, controlPointsOf(program, processDef), highlightKey(program, processDef))!;
     expect(screen.getByText(`${n} / ${program.timeline.length}`)).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "ガイド" })).toBeNull();
   });

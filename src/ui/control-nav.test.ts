@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { processDef, program } from "../data";
-import { controlPointsOf } from "../replay/narrate";
+import { controlPointsOf, highlightKey } from "../replay/narrate";
 import { firstHighlight, nextControl } from "./control-nav";
 
 const points = controlPointsOf(program, processDef);
@@ -21,10 +21,12 @@ describe("nextControl", () => {
 });
 
 describe("firstHighlight", () => {
-  it("見どころ（テスト未対応の要件が生じた最初の場面）の位置を返す", () => {
-    const n = firstHighlight(program.timeline, points)!;
+  it("見どころは、対応表がある状態に要件を追加した場面（最初の登録ではない）", () => {
+    const n = firstHighlight(program.timeline, points, highlightKey(program, processDef))!;
     const item = program.timeline[n - 1]!;
     expect(points.get(item.key)).toContain("untraced_requirement");
     expect(item.event.type).toBe("requirements.updated");
+    expect(item.event.payload?.added).toEqual(["REQ-011", "REQ-012"]);
+    expect(n).toBeGreaterThan(40);
   });
 });

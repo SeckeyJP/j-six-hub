@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { controlPointsOf, narrate } from "./replay/narrate";
+import { controlPointsOf, highlightKey, narrate } from "./replay/narrate";
 import { replayProgram } from "./replay/program";
 import { replay } from "./replay/replay";
 import type { ProgramData } from "./types/program";
@@ -33,7 +33,7 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
   const state = useMemo(() => replayProgram(data, process, player.n), [data, process, player.n]);
   const controlPoints = useMemo(() => controlPointsOf(data, process), [data, process]);
   const nextStop = useMemo(() => nextControl(data.timeline, controlPoints, player.n), [data.timeline, controlPoints, player.n]);
-  const highlight = useMemo(() => firstHighlight(data.timeline, controlPoints), [data.timeline, controlPoints]);
+  const highlight = useMemo(() => firstHighlight(data.timeline, controlPoints, highlightKey(data, process)), [data, process, controlPoints]);
   useKeyboard(player);
 
   const current = state.current;
