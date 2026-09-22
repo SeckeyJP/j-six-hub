@@ -39,7 +39,7 @@ describe("工程ボードのカードに統制を出す", () => {
   });
 
   it("件数が 0 でも欄を残す（高さを変えない。REQ-022）", () => {
-    const early = renderAt("#/p/monthly-billing/board?n=3").container;
+    const early = renderAt("#/p/monthly-billing/board?n=100").container;
     const late = renderAt("#/p/monthly-billing/board?n=176").container;
     const slots = (c: HTMLElement) => [...c.querySelectorAll(".phase-card")].map((x) => x.querySelector('[data-slot="marks"]')!.children.length);
     expect(slots(early)).toEqual(slots(late));
@@ -49,10 +49,10 @@ describe("工程ボードのカードに統制を出す", () => {
 describe("順序違反から履歴へ", () => {
   it("出来事の ID を押すと、履歴のその行が開く", async () => {
     const { container } = renderAt("#/p/monthly-billing/board?n=176");
-    const link = within(container).getByRole("button", { name: /mb-\d+/ });
+    const link = within(container).getByRole("button", { name: /ev-\d+/ });
     const id = link.textContent!.trim();
-    await userEvent.click(link);
-    const row = screen.getByTestId(`event-${id}`);
+    await userEvent.setup({ delay: null }).click(link);
+    const row = screen.getByTestId(`event-monthly-billing:${id}`);
     expect(row.getAttribute("aria-expanded")).toBe("true");
   });
 });

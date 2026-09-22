@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ControlKind } from "../replay/narrate";
 import type { HubEvent } from "../types/events";
 import type { ProgramData } from "../types/program";
@@ -36,6 +36,7 @@ export function Timeline({
   controlPoints,
   projectId,
   inMain = false,
+  focus = null,
   help,
   legendHelp,
 }: {
@@ -46,11 +47,15 @@ export function Timeline({
   projectId: string | null;
   /** 本文として開くか（狭い画面では右の欄ではなく画面として出す。REQ-028） */
   inMain?: boolean;
+  /** 他の画面から開く出来事（時間軸のキーと、押した時刻） */
+  focus?: { key: string; at: number } | null;
   help?: ReactNode;
   legendHelp?: ReactNode;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<string | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  useFocusRow(focus, listRef, setFilter, setOpen);
   const projects = new Map(data.projects.map((p) => [p.id, p]));
   const roleName = (id?: string) => (id ? (process.roles.find((r) => r.id === id)?.name ?? id) : null);
 
@@ -89,7 +94,7 @@ export function Timeline({
         {projectId && segment("project", `このプロジェクト ${counts.project}`)}
       </div>
       {items.length === 0 && <p className="muted">まだ出来事はありません。</p>}
-      <ol aria-label="出来事" className="events">
+      <ol aria-label="出来事" className="events" ref={listRef}>
         {items.map((t) => {
           const e = t.event;
           const p = projects.get(t.project)!;
@@ -98,7 +103,13 @@ export function Timeline({
           const index = data.timeline.indexOf(t) + 1;
           return (
             <li key={t.key} data-key={t.key} className={`${kinds ? "control" : ""} ${p.fictional ? "fictional" : ""}`}>
-              <button type="button" className="event-row" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : t.key)}>
+              <button
+                type="button"
+                className="event-row"
+                data-testid={`event-${t.key}`}
+                aria-expanded={expanded}
+                onClick={() => setOpen(expanded ? null : t.key)}
+              >
                 <span className="event-head">
                   <span className="event-index">{kinds ? `⚑ ${index}` : index}</span>
                   <span className="event-time">{e.timestamp.slice(11, 16)}</span>
@@ -141,4 +152,34 @@ export function Timeline({
       </ol>
     </aside>
   );
+}
+
+/**
+ * 他の画面から渡された出来事の行を開き、見える位置まで寄せる。
+ * 絞り込みで隠れているときは「すべて」に戻す（押したのに何も起きない、を避ける）。
+ */
+function useFocusRow(
+  focus: { key: string; at: number } | null,
+  listRef: React.RefObject<HTMLOListElement | null>,
+  setFilter: (f: Filter) => void,
+  setOpen: (k: string | null) => void,
+): void {
+  useEffect(() => {
+    if (!focus) return;
+    setOpen(focus.key);
+    const list = listRef.current;
+    const row = list?.querySelector<HTMLElement>(`[data-key="${CSS.escape(focus.key)}"]`);
+    if (!row) {
+      setFilter("all");
+      return;
+    }
+    const box = list?.closest<HTMLElement>(".timeline");
+    // 欄の中だけを動かす（ページ全体が飛ぶと、いま見ている場所を見失う）
+    if (box && box.scrollHeight > box.clientHeight) {
+      box.scrollTop = Math.max(0, row.offsetTop - box.offsetTop - 16);
+    } else {
+      // jsdom には scrollIntoView が無い（テストでは寄せる動きは検証しない）
+      row.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [focus, listRef, setFilter, setOpen]);
 }

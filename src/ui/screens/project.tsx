@@ -15,6 +15,8 @@ export interface ScreenProps {
   project: ProjectData;
   state: HubState;
   process: ProcessDefinition;
+  /** 出来事 ID を押したときに履歴の該当行を開く（工程ボードの順序違反から使う） */
+  onOpenEvent?: (eventId: string) => void;
 }
 
 const COMPONENTS = {

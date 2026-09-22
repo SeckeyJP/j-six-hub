@@ -1,9 +1,16 @@
 import type { ReactNode } from "react";
 import type { Narration } from "../replay/narrate";
 import type { ProjectData, TimelineItem } from "../types/program";
+import type { ProcessDefinition } from "../types/process";
+import { ACTOR_ICON, ACTOR_KIND } from "./labels";
 import { FictionalBadge, ProvenanceBadge } from "./provenance-badge";
 
 const EMPTY_TEXT = "▶ を押すと再生します（→ キーで1つずつ）。3つのプロジェクトの出来事が、起きた順に再生されます。";
+
+/** 役割 ID をプロセス定義の名前にする（定義に無ければ ID のまま） */
+function roleName(process: ProcessDefinition, id?: string): string | null {
+  return id ? (process.roles.find((r) => r.id === id)?.name ?? id) : null;
+}
 
 function formatTime(ts: string): string {
   return `${ts.slice(0, 10)} ${ts.slice(11, 16)} UTC`;
@@ -18,6 +25,7 @@ export function NowCard({
   item,
   project,
   narration,
+  process,
   n,
   total,
   nextControl,
@@ -27,6 +35,7 @@ export function NowCard({
   item: TimelineItem | null;
   project: ProjectData | null;
   narration: Narration | null;
+  process: ProcessDefinition;
   n: number;
   total: number;
   nextControl: number | null;
@@ -57,7 +66,15 @@ export function NowCard({
               <span className="project-chip" data-project={project.id}>{project.name}</span>
               {project.fictional && <FictionalBadge />}
               <ProvenanceBadge value={item.event.provenance} />
-              {item.event.phase && <span className="phase-chip">{item.event.phase}</span>}
+              {item.event.phase && (
+                <span className="phase-chip">
+                  {item.event.phase} {process.phases.find((ph) => ph.id === item.event.phase)?.name}
+                </span>
+              )}
+              <span className="meta-actor" data-testid="meta-actor" title={roleName(process, item.event.actor.role) ?? undefined}>
+                {ACTOR_ICON[item.event.actor.kind]} {ACTOR_KIND[item.event.actor.kind]}
+                {item.event.actor.name ? `（${item.event.actor.name}）` : ""}
+              </span>
             </>
           )}
         </p>
