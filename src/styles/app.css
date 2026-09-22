@@ -256,3 +256,29 @@ tr.warn td { color: var(--danger); }
 .timeline .help-bubble[data-side="below"]::after { left: auto; right: 0.9rem; }
 .player .help-bubble { top: auto; bottom: 1.7rem; left: auto; right: -0.5rem; }
 .player .help-bubble::after { top: auto !important; bottom: -6px; left: auto !important; right: 0.9rem; }
+
+/* --- 再生中に配置を動かさない（REQ-022） --- */
+.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.now { --lh: 1.5; }
+.now-meta { height: 1.5rem; overflow: hidden; }
+.now-headline { line-height: var(--lh); height: calc(2 * var(--lh) * 1.12rem); }
+.now-headline.now-empty { font-size: 0.95rem; font-weight: 400; color: var(--muted); height: calc(2 * var(--lh) * 1.12rem); }
+.now-detail { line-height: var(--lh); height: calc(2 * var(--lh) * 0.9rem); margin: 0.1rem 0 !important; }
+.now-hub { line-height: var(--lh); height: calc(2 * var(--lh) * 0.9rem + 0.9rem); box-sizing: border-box; }
+.now-hub.is-empty { visibility: hidden; }
+.player-info { width: 11.5rem; flex: none; white-space: nowrap; }
+.player-info .time { overflow: hidden; text-overflow: ellipsis; }
+.alert-count.is-empty { visibility: hidden; }
+.alert-count { display: block; }
+.badge-slot { display: block; min-height: 1.1rem; }
+.sidebar .badge-slot:empty { min-height: 0; }
+.status-line { -webkit-line-clamp: 1; height: 1.6rem; }
+.alerts { min-height: 3.4rem; align-content: flex-start; }
+@media (max-width: 720px) {
+  .now-headline, .now-headline.now-empty { height: calc(3 * var(--lh) * 1.12rem); -webkit-line-clamp: 3; }
+  .now-detail { height: calc(3 * var(--lh) * 0.9rem); -webkit-line-clamp: 3; }
+  .now-hub { height: calc(3 * var(--lh) * 0.9rem + 0.9rem); -webkit-line-clamp: 3; }
+  .player-info { width: auto; }
+}
+.now-headline.now-empty { margin: 0.1rem 0 0.2rem; }
+.reopened.is-empty { visibility: hidden; }
