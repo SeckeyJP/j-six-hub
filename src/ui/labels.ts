@@ -38,9 +38,11 @@ export const TRIGGER: Record<string, string> = {
 
 export const SCREENS = [
   { id: "board", label: "Phase ボード" },
+  { id: "requirements", label: "要求" },
   { id: "tasks", label: "タスク" },
   { id: "gates", label: "ゲート" },
   { id: "approvals", label: "承認" },
+  { id: "traceability", label: "トレーサビリティ" },
   { id: "evidence", label: "証跡" },
 ] as const;
 

@@ -14,8 +14,9 @@ const afterSpecRevision = (id: string) =>
   project(id).events.findIndex((e: HubEvent) => e.type === "requirements.updated" && (e.payload?.added as string[])?.includes("REQ-011")) + 1;
 
 describe("要求の画面", () => {
-  it("登録前は要求がまだ無いことを示す", () => {
-    show("approval-workflow", "requirements", 0);
+  it("要求の登録前（案件は登録済み）は、まだ無いことを示す", () => {
+    const k = project("approval-workflow").events.findIndex((e) => e.type === "requirements.updated");
+    show("approval-workflow", "requirements", k);
     expect(screen.getByText("要求はまだ登録されていません")).toBeInTheDocument();
   });
 
@@ -37,8 +38,9 @@ describe("要求の画面", () => {
 });
 
 describe("トレーサビリティの画面", () => {
-  it("作成前はまだ無いことを示す", () => {
-    show("approval-workflow", "traceability", 0);
+  it("作成前（案件は登録済み）はまだ無いことを示す", () => {
+    const k = project("approval-workflow").events.findIndex((e) => e.type === "traceability.updated");
+    show("approval-workflow", "traceability", k);
     expect(screen.getByText("トレーサビリティはまだありません")).toBeInTheDocument();
   });
 

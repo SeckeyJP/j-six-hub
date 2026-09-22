@@ -46,8 +46,19 @@ describe("controlKinds（統制ポイント）", () => {
     expect(keys.length).toBeGreaterThan(5);
     for (const key of keys) {
       const item = program.timeline.find((t) => t.key === key)!;
-      expect(["gate.evaluated", "gate.approved", "deviation.opened", "ai.session.started", "commit.created", "task.dispatched", "ai.agent.started", "hook.blocked"]).toContain(item.event.type);
+      expect([
+        "gate.evaluated", "gate.approved", "deviation.opened", "ai.session.started", "commit.created",
+        "task.dispatched", "ai.agent.started", "hook.blocked", "requirements.updated",
+      ]).toContain(item.event.type);
     }
+  });
+});
+
+describe("controlKinds（要求の追加）", () => {
+  it("テストの無い要件が生じたら統制ポイントにする", () => {
+    const { ev, before, after } = at("approval-workflow", (e) => e.type === "requirements.updated" && (e.payload?.added as string[])?.includes("REQ-011"));
+    expect(controlKinds(ev, before, after)).toContain("untraced_requirement");
+    expect(narrate(ev, before, after, processDef).control).toMatch(/トレーサビリティ/);
   });
 });
 
