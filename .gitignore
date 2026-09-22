@@ -7,6 +7,9 @@ coverage/
 __pycache__/
 .pytest_cache/
 
+# デザインレビューの受領物（モックと支援スクリプト。実装には使わない）
+design_handoff_jsix_hub_review/
+
 # 引き継ぎ資料（非公開）
 HANDOFF_TO_CLAUDE_CODE.md
 TODO_AND_ORDER.md
