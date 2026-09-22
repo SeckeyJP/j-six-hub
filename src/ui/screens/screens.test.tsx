@@ -13,8 +13,8 @@ const showProject = (id: string, screenName: string, n?: number) => {
   return render(<ProjectScreen project={p} screen={screenName} state={replay(p.events, processDef, n ?? p.events.length)} process={processDef} />);
 };
 
-describe("案件一覧（Program の概観）", () => {
-  it("AC-007: 3件の案件を並べ、架空の案件に架空と表示する", () => {
+describe("プロジェクト一覧（Program の概観）", () => {
+  it("AC-007: 3件のプロジェクトを並べ、架空のプロジェクトに架空と表示する", () => {
     render(<Home data={program} state={replayProgram(program, processDef, END)} process={processDef} />);
     const cards = screen.getAllByRole("article");
     expect(cards.map((c) => within(c).getByRole("heading").textContent)).toEqual(program.projects.map((p) => p.name));
@@ -22,16 +22,16 @@ describe("案件一覧（Program の概観）", () => {
     expect(within(cards[0]!).queryByText("架空")).toBeNull();
   });
 
-  it("各案件の進み具合（Phase ごと）と注意点を示す", () => {
+  it("各プロジェクトの進み具合（Phase ごと）と注意点を示す", () => {
     render(<Home data={program} state={replayProgram(program, processDef, END)} process={processDef} />);
     const aw = screen.getByRole("article", { name: "申請承認ワークフロー" });
     expect(within(aw).getAllByTestId("phase-seg")).toHaveLength(processDef.phases.length);
-    expect(aw).toHaveTextContent("順序違反 1");
+    expect(aw).toHaveTextContent("工程の順序違反 1");
     const oi = screen.getByRole("article", { name: "受発注連携" });
-    expect(oi).toHaveTextContent("ゲートで停止");
+    expect(oi).toHaveTextContent("検査で停止");
   });
 
-  it("登録前の案件は未登録と示す", () => {
+  it("登録前のプロジェクトは未登録と示す", () => {
     render(<Home data={program} state={replayProgram(program, processDef, 0)} process={processDef} />);
     expect(screen.getAllByText("まだ登録されていません")).toHaveLength(program.projects.length);
   });
@@ -48,9 +48,9 @@ describe("Phase ボード", () => {
     }
   });
 
-  it("順序違反と開いている逸脱を示す", () => {
+  it("工程の順序違反と対応中の例外処理を示す", () => {
     showProject("approval-workflow", "board");
-    expect(screen.getByRole("region", { name: "順序違反" })).toHaveTextContent("P5");
+    expect(screen.getByRole("region", { name: "工程の順序違反" })).toHaveTextContent("P5");
   });
 });
 
@@ -83,7 +83,7 @@ describe("ゲート・承認・証跡", () => {
     expect(rows.filter((r) => r.textContent?.includes("無効"))).toHaveLength(2);
   });
 
-  it("実データの案件は J-SIX の証跡へリンクし、架空の案件はファイルが無いことを示す", () => {
+  it("実データのプロジェクトは J-SIX の証跡へリンクし、架空のプロジェクトはファイルが無いことを示す", () => {
     showProject("monthly-billing", "evidence");
     expect(screen.getByRole("link", { name: /J-SIX リポジトリで開く/ }).getAttribute("href")).toMatch(
       /examples\/monthly-billing\/reports\/evidence\/TASK-MB-007$/,

@@ -33,7 +33,7 @@ export function Evidence({ project, state, process }: ScreenProps) {
                   J-SIX リポジトリで開く（証跡・参考所見・承認の3区分）
                 </a>
               ) : (
-                <p className="muted">架空の案件のため、証跡のファイルはありません。</p>
+                <p className="muted">架空のプロジェクトのため、証跡のファイルはありません。</p>
               )}
             </article>
           );

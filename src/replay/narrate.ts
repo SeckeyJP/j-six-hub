@@ -126,11 +126,11 @@ function describe(ev: HubEvent, after: HubState, process: ProcessDefinition): { 
   const p = ev.payload ?? {};
   switch (ev.type) {
     case "project.registered":
-      return { headline: `案件「${String(p.project)}」を Hub に登録した`, detail: ["以降、この案件の工程・承認・証跡は Hub で一元管理される"], control: null };
+      return { headline: `プロジェクト「${String(p.project)}」を Hub に登録した`, detail: ["以降、このプロジェクトの工程・承認・監査記録は Hub で一元管理される"], control: null };
     case "process.pinned":
-      return { headline: `この案件が従う工程のルール（プロセス定義 ${String(p.version)}）を固定した`, detail: ["途中でルールが改訂されても、どの版で進めたかが記録に残る"], control: null };
+      return { headline: `このプロジェクトが従う工程のルール（プロセス定義 ${String(p.version)}）を固定した`, detail: ["途中でルールが改訂されても、どの版で進めたかが記録に残る"], control: null };
     case "constitution.pinned":
-      return { headline: "AI への指示書（憲法 CLAUDE.md）の版を固定した", detail: ["この案件の AI は、全員が同じ版の指示で動く"], control: null };
+      return { headline: "AI への指示書（憲法 CLAUDE.md）の版を固定した", detail: ["このプロジェクトの AI は、全員が同じ版の指示で動く"], control: null };
     case "task.dispatched":
       return {
         headline: `${ev.task ?? "実装タスク"} を${p.team ? `「${String(p.team)}」の` : ""} AI に割り当てた`,

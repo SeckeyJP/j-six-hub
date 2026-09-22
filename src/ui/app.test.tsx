@@ -38,7 +38,7 @@ describe("共通レイアウト", () => {
   });
 });
 
-describe("案件のナビゲーション", () => {
+describe("プロジェクトのナビゲーション", () => {
   it("左の一覧に全プロジェクトがあり、選ぶと工程ボードを開く", async () => {
     renderAt("#/");
     const nav = screen.getByRole("navigation", { name: "プロジェクト" });
@@ -54,9 +54,9 @@ describe("案件のナビゲーション", () => {
     expect(window.location.hash).toContain("#/p/approval-workflow/approvals");
   });
 
-  it("REQ-016: 架空の案件の画面には常に架空と表示する", () => {
+  it("REQ-016: 架空のプロジェクトの画面には常に架空と表示する", () => {
     renderAt("#/p/order-integration/board");
-    expect(screen.getByRole("main")).toHaveTextContent("この案件は架空のシナリオです");
+    expect(screen.getByRole("main")).toHaveTextContent("このプロジェクトは架空のシナリオです");
   });
 });
 

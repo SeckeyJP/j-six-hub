@@ -36,9 +36,9 @@ export function ProjectScreen({ screen, help, ...props }: ScreenProps & { screen
         {props.project.name} — {def.label} {help}
       </h2>
       {props.project.fictional && (
-        <p className="fictional-note">この案件は架空のシナリオです（全イベントが再構成）。複数ベンダーと Interface Contract の統制を説明するために作りました。</p>
+        <p className="fictional-note">このプロジェクトは架空のシナリオです（全イベントが再構成）。複数ベンダーと Interface Contract の統制を説明するために作りました。</p>
       )}
-      {!props.state.project ? <p className="muted">この案件はまだ登録されていません。再生を進めてください。</p> : <Component {...props} />}
+      {!props.state.project ? <p className="muted">このプロジェクトはまだ登録されていません。再生を進めてください。</p> : <Component {...props} />}
     </section>
   );
 }

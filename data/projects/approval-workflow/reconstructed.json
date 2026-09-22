@@ -2,16 +2,16 @@
   {
     "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P0", "task": null,
     "type": "project.registered", "actor": {"kind": "human", "name": "PM"},
-    "summary": "案件 approval-workflow（申請承認ワークフロー）を Hub に登録した",
+    "summary": "プロジェクト approval-workflow（申請承認ワークフロー）を Hub に登録した",
     "payload": {"project": "approval-workflow"},
-    "basis": "当時 Hub は存在しない。初版のコミット（7159a94）の時点で案件が始まっていたものとして置いた"
+    "basis": "当時 Hub は存在しない。初版のコミット（7159a94）の時点でプロジェクトが始まっていたものとして置いた"
   },
   {
     "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P0", "task": null,
     "type": "process.pinned", "actor": {"kind": "system", "role": "automation"},
-    "summary": "この案件が従うプロセス定義を process-v0.1.0 に固定した",
+    "summary": "このプロジェクトが従うプロセス定義を process-v0.1.0 に固定した",
     "payload": {"version": "process-v0.1.0"},
-    "basis": "プロセス定義（J-SIX process/jsix-process.yaml）は 2026-09-22 に作成した。当時の工程を同じ定義で表示するため、案件の開始時に固定したものとして置いた"
+    "basis": "プロセス定義（J-SIX process/jsix-process.yaml）は 2026-09-22 に作成した。当時の工程を同じ定義で表示するため、プロジェクトの開始時に固定したものとして置いた"
   },
   {
     "timestamp": "2026-06-15T13:03:59Z", "iteration": "2026-06 初版", "phase": "P0", "task": null,
