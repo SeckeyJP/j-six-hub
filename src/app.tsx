@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { controlPointsOf, highlightKey, narrate } from "./replay/narrate";
 import { replayProgram } from "./replay/program";
 import { replay } from "./replay/replay";
@@ -49,6 +49,9 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
   }, [current, currentProject, process, state]);
 
   const selected = route.kind === "project" ? data.projects.find((p) => p.id === route.id) : undefined;
+  // 工程ボードの順序違反から履歴の行を開く（REQ-020）。同じ ID を続けて押しても開き直せるよう、時刻を添える
+  const [focus, setFocus] = useState<{ key: string; at: number } | null>(null);
+  const openEvent = (eventId: string) => selected && setFocus({ key: `${selected.id}:${eventId}`, at: Date.now() });
   // 狭い画面では右の欄を出さず、履歴を本文として開く（REQ-028）
   const historyView = route.kind === "project" && route.screen === HISTORY_SCREEN;
   const timeline = (
@@ -59,6 +62,7 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
       controlPoints={controlPoints}
       projectId={selected?.id ?? null}
       inMain={historyView}
+      focus={focus}
       help={<HelpTip id="timeline" />}
       legendHelp={<HelpTip id="legend" />}
     />
@@ -89,6 +93,7 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
           item={current}
           project={currentProject}
           narration={narration}
+          process={process}
           n={player.n}
           total={data.timeline.length}
           nextControl={nextStop}
@@ -104,6 +109,7 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
               screen={route.kind === "project" ? route.screen : "board"}
               state={state.projects[selected.id]!}
               process={process}
+              onOpenEvent={openEvent}
               help={<HelpTip id="screen" />}
             />
           ) : (

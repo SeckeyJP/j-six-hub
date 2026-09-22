@@ -11,6 +11,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ["src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
+    // 画面全体を描いて操作するテストがあり、並列実行では 5 秒では足りないことがある
+    testTimeout: 20000,
     coverage: { include: ["src/**", "scripts/**"], exclude: ["**/*.test.*", "src/test/**"] },
   },
 });

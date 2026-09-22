@@ -21,11 +21,11 @@ describe("いま起きたこと", () => {
   const renderAt = (k: number) => {
     const item = program.timeline.find((t) => t.project === aw.id && t.event === aw.events[k])!;
     const n = narrate(aw.events[k]!, replay(aw.events, processDef, k), replay(aw.events, processDef, k + 1), processDef);
-    return render(<NowCard item={item} project={aw} narration={n} n={k + 1} total={100} nextControl={null} onSeek={vi.fn()} />).container;
+    return render(<NowCard item={item} project={aw} narration={n} process={processDef} n={k + 1} total={100} nextControl={null} onSeek={vi.fn()} />).container;
   };
 
   it("再生前・通常の出来事・統制ポイントで、欄の構成が同じ", () => {
-    const empty = render(<NowCard item={null} project={null} narration={null} n={0} total={100} nextControl={null} onSeek={vi.fn()} />).container;
+    const empty = render(<NowCard item={null} project={null} narration={null} process={processDef} n={0} total={100} nextControl={null} onSeek={vi.fn()} />).container;
     const normal = renderAt(aw.events.findIndex((e) => e.type === "commit.created"));
     const controlIndex = aw.events.findIndex((e) => points.has(`${aw.id}:${e.id}`));
     const control = renderAt(controlIndex);
@@ -65,13 +65,13 @@ describe("Phase ボード", () => {
     const at = (n: number) =>
       render(<ProjectScreen project={aw} screen="board" state={replay(aw.events, processDef, n)} process={processDef} />).container;
     expect(shape(at(k))).toEqual(shape(at(k + 1)));
-    expect(shape(at(k + 1))).toContain("reopened");
+    expect(shape(at(k + 1))).toContain("marks");
   });
 });
 
 describe("いま起きたことの案内文", () => {
   it("配置に依存する言葉を使わない", () => {
-    const { container } = render(<NowCard item={null} project={null} narration={null} n={0} total={100} nextControl={null} onSeek={vi.fn()} />);
+    const { container } = render(<NowCard item={null} project={null} narration={null} process={processDef} n={0} total={100} nextControl={null} onSeek={vi.fn()} />);
     expect(container.querySelector('[data-slot="headline"]')!.textContent).not.toMatch(/下の|右の|左の/);
   });
 });

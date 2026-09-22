@@ -1,9 +1,21 @@
 import type { ScreenProps } from "./project";
 import { PHASE_STATUS } from "../labels";
+import type { HubState } from "../../replay/state";
+import type { PhaseId } from "../../types/process";
 
-/** Phase ボード：工程を左から右へ並べ、各 Phase の出口のゲートを示す */
-export function Board({ state, process }: ScreenProps) {
+/** その工程で Hub が止めた件数・順序違反の件数（REQ-010） */
+function marksOf(state: HubState, phase: PhaseId) {
+  return {
+    stopped: state.evaluations.filter((e) => e.phase === phase && (e.outcome === "blocked" || e.outcome === "failed")).length,
+    violations: state.violations.filter((v) => v.phase === phase).length,
+  };
+}
+
+/** 工程ボード：工程を左から右へ並べ、各 Phase の出口の品質検査と、そこで働いた統制を示す */
+export function Board({ state, process, onOpenEvent }: ScreenProps) {
   const openDeviations = state.deviations.filter((d) => d.closedBy === null);
+  // 「いまここ」は、まだ始まっていない工程を除いた最後の工程
+  const here = [...state.phases].reverse().find((p) => p.status !== "not_started")?.id ?? null;
   return (
     <>
       <p className="lead">
@@ -12,6 +24,7 @@ export function Board({ state, process }: ScreenProps) {
       <div className="pipeline">
         {state.phases.map((p) => {
           const gate = process.gates.find((g) => g.id === p.gateId);
+          const marks = marksOf(state, p.id);
           const headingId = `phase-${p.id}`;
           return (
             <section key={p.id} aria-labelledby={headingId} className={`phase-card status-${p.status}`}>
@@ -23,9 +36,24 @@ export function Board({ state, process }: ScreenProps) {
                 {PHASE_STATUS[p.status]}
                 {p.mode === "continuous" && "（継続）"}
               </p>
-              {/* 表示しないときも場所を確保し、再生中にカードの高さを変えない（REQ-022） */}
-              <p className={`warn reopened ${p.reopened && p.status !== "approved" ? "" : "is-empty"}`} data-slot="reopened">
-                ↩ 逆戻りで再開
+              {/* 印が無いときも場所を確保し、再生中にカードの高さを変えない（REQ-022） */}
+              <p className="phase-marks" data-slot="marks">
+                <span className={`phase-mark here ${here === p.id ? "" : "is-empty"}`} data-testid="mark-here">
+                  ● いまここ
+                </span>
+                <span className={`phase-mark stop ${marks.stopped > 0 ? "" : "is-empty"}`} data-testid="mark-stopped" title={`この工程で Hub が作業を止めた回数: ${marks.stopped}`}>
+                  ⚑ 検査で停止 {marks.stopped}
+                </span>
+                <span className={`phase-mark violation ${marks.violations > 0 ? "" : "is-empty"}`} data-testid="mark-violation" title={`前の工程の承認前に始まった回数: ${marks.violations}`}>
+                  ⚠ 順序違反 {marks.violations}
+                </span>
+                <span
+                  className={`phase-mark reopened ${p.reopened && p.status !== "approved" ? "" : "is-empty"}`}
+                  data-testid="mark-reopened"
+                  title="Phase 逆戻りで開き直した工程"
+                >
+                  ↩ 逆戻り
+                </span>
               </p>
               <p className="gate">🚪 {gate ? gate.name : "ゲートなし"}</p>
               {gate && gate.layers.length > 1 && (
@@ -55,7 +83,11 @@ export function Board({ state, process }: ScreenProps) {
             <ul>
               {state.violations.map((v) => (
                 <li key={v.eventId} className="warn">
-                  {v.missing.join("・")} の承認前に {v.phase} が始まった（{v.eventId}）
+                  {v.missing.join("・")} の承認前に {v.phase} が始まった（
+                  <button type="button" className="link-event" onClick={() => onOpenEvent?.(v.eventId)}>
+                    {v.eventId}
+                  </button>
+                  ）
                 </li>
               ))}
             </ul>

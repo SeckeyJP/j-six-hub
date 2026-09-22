@@ -280,7 +280,7 @@ tr.warn td { color: var(--danger); }
   .phase-id { grid-column: 1; grid-row: 1 / span 3; font-size: 0.82rem; font-weight: 700; color: var(--muted); }
   .phase-name { grid-column: 2; grid-row: 1; font-size: 0.88rem; }
   .phase-card .gate { grid-column: 2; grid-row: 2; font-size: 0.74rem; color: var(--muted); margin: 0; }
-  .phase-card .reopened { grid-column: 2; grid-row: 3; font-size: 0.72rem; margin: 0; }
+  .phase-card .phase-marks { grid-column: 2; grid-row: 3; font-size: 0.68rem; margin: 0; height: 3rem; }
   .phase-card .layers { grid-column: 2; grid-row: 4; display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0; margin: 0.15rem 0 0; list-style: none; }
   .phase-card .layers .layer-name { display: none; }
   .phase-card .layers .layer-id { border: 1px solid var(--line); border-radius: 4px; padding: 0 0.3rem; font-size: 0.68rem; }
@@ -329,7 +329,23 @@ tr.warn td { color: var(--danger); }
   .player-info { width: auto; }
 }
 .now-headline.now-empty { margin: 0.1rem 0 0.2rem; }
-.reopened.is-empty { visibility: hidden; }
+/* 印が無いときも場所を残し、再生中にカードの高さを変えない（REQ-022）。
+   .mark は再生バーの停止位置の印に使っているので、工程の印は別の名前にする */
+.phase-mark.is-empty { visibility: hidden; }
+.phase-marks {
+  display: flex; flex-wrap: wrap; gap: 0.2rem 0.35rem; margin: 0.25rem 0;
+  /* 印が最も多い場合（4つ）に必要な高さ。ブラウザで全位置を測って決めた（PC 66px / 狭い画面 48px） */
+  height: 4.2rem; overflow: hidden; align-content: flex-start;
+}
+.phase-mark { font-size: 0.62rem; line-height: 1.3; padding: 0 0.25rem; border-radius: 4px; white-space: nowrap; }
+.phase-mark.here { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 700; }
+.phase-mark.stop { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); font-weight: 700; }
+.phase-mark.violation { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); font-weight: 700; }
+.phase-mark.reopened { color: var(--warn); }
+.link-event { font: inherit; font-size: inherit; color: var(--accent); background: none; border: none; padding: 0; text-decoration: underline; cursor: pointer; }
+.meta-actor { font-size: 0.72rem; color: var(--muted); }
+/* 他の画面から開いた行を目立たせる */
+.events li:has(> [aria-expanded="true"]) { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
 .tag-added { font-size: 0.7rem; padding: 0 0.35rem; border-radius: 4px; background: var(--accent); color: #fff; }
 tr.added td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 tr.untraced td { background: color-mix(in srgb, var(--danger) 9%, transparent); }

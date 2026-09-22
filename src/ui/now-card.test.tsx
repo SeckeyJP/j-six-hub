@@ -16,6 +16,7 @@ function show(pred: (k: string) => boolean, onSeek = vi.fn()) {
   const narration = narrate(aw.events[k]!, replay(aw.events, processDef, k), replay(aw.events, processDef, k + 1), processDef);
   render(
     <NowCard
+      process={processDef}
       item={item}
       project={aw}
       narration={narration}
@@ -58,7 +59,7 @@ describe("いま起きたこと（ヘッダ帯）", () => {
   });
 
   it("再生前は案内を出し、帯は通常の表示にする", () => {
-    render(<NowCard item={null} project={null} narration={null} n={0} total={10} nextControl={3} onSeek={vi.fn()} />);
+    render(<NowCard item={null} project={null} narration={null} process={processDef} n={0} total={10} nextControl={3} onSeek={vi.fn()} />);
     expect(band()).toHaveTextContent("通常の出来事");
     expect(screen.getByRole("region", { name: "いま起きたこと" })).toHaveTextContent("▶");
   });
