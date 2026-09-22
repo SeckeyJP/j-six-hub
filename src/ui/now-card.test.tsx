@@ -38,6 +38,12 @@ describe("いま起きたこと（ヘッダ帯）", () => {
     expect(band().className).toContain("band-control");
   });
 
+  it("停止ではない統制記録を、Hub が止めた場面とは表示しない", () => {
+    show((key) => points.get(key)?.includes("invalid_approval") ?? false);
+    expect(band()).toHaveTextContent("Hub の統制を記録した場面");
+    expect(band()).not.toHaveTextContent("Hub が止めた場面");
+  });
+
   it("通常の出来事では「通常の出来事」を出す", () => {
     show((key) => !points.has(key));
     expect(band()).toHaveTextContent("通常の出来事");

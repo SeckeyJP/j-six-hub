@@ -91,7 +91,7 @@ export function Timeline({
       </section>
       <div className="filters" role="group" aria-label="絞り込み">
         {segment("all", `すべて ${counts.all}`)}
-        {segment("control", `⚑ Hub が止めた ${counts.control}`)}
+        {segment("control", `⚑ Hub の統制記録 ${counts.control}`)}
         {projectId && segment("project", `このプロジェクト ${counts.project}`)}
       </div>
       {items.length === 0 && <p className="muted">まだ出来事はありません。</p>}

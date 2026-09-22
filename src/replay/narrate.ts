@@ -44,6 +44,11 @@ export function controlPointsOf(data: ProgramData, process: ProcessDefinition): 
   return points;
 }
 
+/** 全案件のうち、ゲートまたは Hook が実際に作業を停止した位置だけを返す。 */
+export function stopPointsOf(data: ProgramData, process: ProcessDefinition): Map<string, ControlKind[]> {
+  return new Map([...controlPointsOf(data, process)].filter(([, kinds]) => kinds.includes("gate_stopped")));
+}
+
 /**
  * ガイドで案内する「見どころ」のキー。
  * 要件を追加した結果テストが無い状態になった場面のうち、**すでに要件とテストの対応がある**

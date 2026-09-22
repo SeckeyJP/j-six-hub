@@ -11,7 +11,7 @@ function formatDate(ts: string): string {
   return ts.slice(0, 10);
 }
 
-/** 画面下部の再生操作。スライダーの上に統制ポイントの位置を印で示す */
+/** 画面下部の再生操作。スライダーの上に品質検査の停止位置を印で示す */
 export function PlayerBar({
   player,
   timeline,
@@ -22,7 +22,7 @@ export function PlayerBar({
   player: Player;
   timeline: TimelineItem[];
   controlPoints: Map<string, ControlKind[]>;
-  /** 現在位置より後の、最初に Hub が止めた場面（無ければ null） */
+  /** 現在位置より後の、最初に品質検査が停止した場面（無ければ null） */
   nextControl: number | null;
   help?: ReactNode;
 }) {
@@ -46,7 +46,7 @@ export function PlayerBar({
           aria-label="次の停止へ"
           onClick={() => nextControl !== null && player.seek(nextControl)}
           disabled={nextControl === null}
-          title="次に Hub が止めた場面へ移動する"
+          title="次に品質検査が停止した場面へ移動する"
         >
           ⚑ 次の停止へ
         </button>

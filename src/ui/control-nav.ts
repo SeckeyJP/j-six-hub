@@ -1,4 +1,4 @@
-// 統制ポイント（Hub が止めた場面）への移動（REQ-025）
+// 品質検査が停止した場面への移動（REQ-025）
 import type { ControlKind } from "../replay/narrate";
 import type { TimelineItem } from "../types/program";
 

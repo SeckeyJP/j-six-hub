@@ -40,6 +40,7 @@ function initialState(process: ProcessDefinition, n: number): HubState {
       gateName: p.gate ? (gateName.get(p.gate) ?? null) : null,
       status: "not_started",
       reopened: false,
+      needsReapproval: false,
       reopenedAt: null,
       approvedBy: null,
     })),
@@ -146,19 +147,22 @@ function startWork(state: HubState, id: PhaseId, eventId: string): void {
     const index = state.phases.indexOf(p);
     const missing = state.phases
       .slice(0, index)
-      .filter((q) => q.mode !== "continuous" && q.status !== "approved")
+      .filter((q) => q.mode !== "continuous" && (q.status !== "approved" || q.needsReapproval))
       .map((q) => q.id);
     if (missing.length > 0) state.violations.push({ eventId, phase: id, missing });
   }
-  if (p.status === "not_started") p.status = "in_progress";
+  if (p.status === "not_started" || p.needsReapproval || p.mode === "per_task") p.status = "in_progress";
 }
 
 function completePerTaskPhases(state: HubState): void {
   for (const p of state.phases) {
-    if (p.mode !== "per_task" || p.status === "approved") continue;
+    if (p.mode !== "per_task") continue;
     // 逆戻りで開き直した後は、その後に投入したタスクだけで判定する（前の周の合格で完了にしない）
     const tasks = state.tasks.filter((t) => t.dispatchedAt > (p.reopenedAt ?? 0));
-    if (tasks.length > 0 && tasks.every((t) => t.status === "passed")) p.status = "approved";
+    if (tasks.length > 0 && tasks.every((t) => t.status === "passed")) {
+      p.status = "approved";
+      p.needsReapproval = false;
+    }
   }
 }
 
@@ -192,6 +196,7 @@ function applyApproval(ctx: Ctx, ev: HubEvent): void {
     if (p) {
       p.status = "approved";
       p.approvedBy = ev.id;
+      p.needsReapproval = false;
     }
   }
 }
@@ -206,12 +211,14 @@ function openDeviation(ctx: Ctx, ev: HubEvent): void {
   const to = str(ev.payload?.to_phase);
   const from = ctx.state.phases.findIndex((p) => p.id === to);
   if (from < 0) return;
-  for (const p of ctx.state.phases.slice(from)) {
+  for (const [index, p] of ctx.state.phases.slice(from).entries()) {
     if (p.mode === "continuous") continue;
-    p.status = "in_progress";
-    p.reopened = true;
-    p.reopenedAt = ev.seq;
-    p.approvedBy = null;
+    if (p.status === "approved") {
+      p.reopened = true;
+      p.needsReapproval = true;
+      p.reopenedAt = ev.seq;
+    }
+    if (index === 0) p.status = "in_progress";
   }
 }
 

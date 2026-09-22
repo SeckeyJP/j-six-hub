@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../app";
 import { processDef, program } from "../data";
-import { controlPointsOf } from "../replay/narrate";
+import { stopPointsOf } from "../replay/narrate";
 import { nextControl } from "./control-nav";
 
-const points = controlPointsOf(program, processDef);
+const points = stopPointsOf(program, processDef);
 
 const renderApp = () => {
   window.location.hash = "#/";
@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("AC-013: 次の停止へ", () => {
-  it("押すと、現在位置より後で最初に Hub が止めた場面へ移動する", async () => {
+  it("押すと、現在位置より後で最初に品質検査が停止した場面へ移動する", async () => {
     renderApp();
     await userEvent.click(screen.getByRole("button", { name: "次の停止へ" }));
     const expected = nextControl(program.timeline, points, 0)!;

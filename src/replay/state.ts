@@ -13,6 +13,8 @@ export interface PhaseView {
   status: PhaseStatus;
   /** Phase 逆戻りで開き直したか */
   reopened: boolean;
+  /** 逆戻り後、以前の承認を使わずに承認を取り直す必要があるか */
+  needsReapproval: boolean;
   /** 最後に開き直したイベントの seq（per_task の Phase は、これより後に投入したタスクで完了を判定する） */
   reopenedAt: number | null;
   /** 承認済みにしたイベント（per_task の Phase ではタスクの完了で承認済みになるため null のことがある） */
