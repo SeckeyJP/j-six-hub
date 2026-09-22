@@ -323,6 +323,14 @@ describe("実データ: approval-workflow", () => {
     expect(realEvents.find((e) => e.id === v.eventId)?.payload?.skill).toBe("doc-reverse-gen");
   });
 
+  it("どの案件でも、最後まで再生するとサブエージェントの実行がすべて終了している", () => {
+    for (const p of program.projects) {
+      const s = replay(p.events, processDef, p.events.length);
+      const running = s.tasks.flatMap((t) => t.agents.filter((a) => a.finishedBy === null).map((a) => `${p.id}/${t.label}/${a.agent}`));
+      expect(running).toEqual([]);
+    }
+  });
+
   it("逸脱はすべて閉じている", () => {
     expect(all.deviations.length).toBeGreaterThan(0);
     expect(all.deviations.every((d) => d.closedBy !== null)).toBe(true);
