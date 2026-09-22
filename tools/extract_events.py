@@ -431,6 +431,109 @@ def evidence_events(project: Path, task: str, meta: dict) -> list[dict]:
                   source={"kind": "report", "ref": rel})]
 
 
+# --- 要求とトレーサビリティ ---------------------------------------------------
+
+_CODE_SPAN = re.compile(r"`([^`]+)`")
+
+
+def _rows(text: str, header_starts: str) -> list[list[str]]:
+    """見出し行が header_starts で始まる Markdown の表の、データ行のセルを返す。"""
+    rows: list[list[str]] = []
+    in_table = False
+    for line in text.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.strip().startswith("|") else None
+        if cells is None:
+            in_table = False
+            continue
+        if not in_table:
+            if cells[0].startswith(header_starts):
+                in_table = True
+            continue
+        if set(cells[0]) <= {"-", ":"}:
+            continue
+        rows.append(cells)
+    return rows
+
+
+def _ids(cell: str, prefix: str) -> list[str]:
+    return re.findall(rf"{prefix}-\d+", cell)
+
+
+def _names(cell: str) -> list[str]:
+    """`code` 表記を取り出す。無い場合は「—」を空として扱う。"""
+    found = _CODE_SPAN.findall(cell)
+    if found:
+        return [f.strip() for f in found]
+    plain = cell.replace("—", "").strip()
+    return [plain] if plain else []
+
+
+def parse_requirement_spec(text: str) -> dict:
+    """要求 Spec から要件（REQ）と性質（PROP）の一覧を読む。"""
+    requirements = []
+    for cells in _rows(text, "#"):
+        if not cells[0].startswith("REQ-") or len(cells) < 3:
+            continue
+        requirements.append({"id": cells[0], "title": cells[1], "detail": cells[2]})
+    properties = []
+    for cells in _rows(text, "#"):
+        if not cells[0].startswith("PROP-") or len(cells) < 4:
+            continue
+        properties.append({"id": cells[0], "requirements": _ids(cells[1], "REQ"), "property": cells[3]})
+    return {"requirements": requirements, "properties": properties}
+
+
+def parse_traceability(text: str) -> dict:
+    """トレーサビリティマトリクスから 要件 ⇔ テスト ⇔ 実装（⇔ ADR）を読む。"""
+    entries = []
+    for cells in _rows(text, "要件"):
+        if not cells[0].startswith("REQ-") or len(cells) < 4:
+            continue
+        entries.append({
+            "id": cells[0],
+            "title": cells[1],
+            "tests": _names(cells[2]),
+            "code": _names(cells[3]),
+            "adr": _ids(cells[4], "ADR") if len(cells) > 4 else [],
+        })
+    properties = []
+    for cells in _rows(text, "Property"):
+        if not cells[0].startswith("PROP-") or len(cells) < 2:
+            continue
+        properties.append({"id": cells[0], "tests": _names(cells[1])})
+    return {"entries": entries, "properties": properties}
+
+
+#: 文書の種類ごとの（ファイル、イベント種別、一覧のキー、要約の文）
+_DOCS = {
+    "requirements": ("docs/requirement-spec.md", "requirements.updated", "requirements", "要求 Spec を更新した"),
+    "traceability": ("docs/traceability.md", "traceability.updated", "entries", "トレーサビリティを更新した"),
+}
+
+
+def document_events(repo: Path, project_dir: str, kind: str, items: list[dict]) -> list[dict]:
+    """要求 Spec・トレーサビリティのコミット時点の内容をイベントにする。前回からの追加 ID を持たせる。"""
+    rel, ev_type, key, phrase = _DOCS[kind]
+    parse = parse_requirement_spec if kind == "requirements" else parse_traceability
+    events = []
+    known: set[str] = set()
+    for it in items:
+        sha = it["sha"]
+        text = _git(repo, "show", f"{sha}:{project_dir.rstrip('/')}/{rel}")
+        date = _git(repo, "show", "-s", "--format=%aI", sha).strip()
+        parsed = parse(text)
+        ids = [x["id"] for x in parsed[key]]
+        added = [i for i in ids if i not in known]
+        known.update(ids)
+        summary = it.get("summary") or (f"{phrase}（{'・'.join(added)} を追加）" if added else phrase)
+        events.append(_base(date, it, type=ev_type,
+                            actor=it.get("actor") or {"kind": "ai", "role": "ai_agent"},
+                            summary=scrub(summary),
+                            payload={**parsed, "added": added},
+                            source={"kind": "git", "ref": f"{sha[:7]}:{rel}"}))
+    return events
+
+
 # --- ゲート失敗の履歴（reports/gate-history.jsonl） ---------------------------
 
 def gate_history_events(project: Path, item: dict) -> list[dict]:
@@ -539,6 +642,9 @@ def build(jsix_repo: Path, sessions_dir: Path | None, project: dict) -> list[dic
         events += evidence_events(jsix_repo / project_dir, r["task"], r)
     for h in sources.get("gate_history", []):
         events += gate_history_events(jsix_repo / project_dir, h)
+    for kind in ("requirements", "traceability"):
+        if sources.get(kind):
+            events += document_events(jsix_repo, project_dir, kind, sources[kind])
     return assemble(events)
 
 

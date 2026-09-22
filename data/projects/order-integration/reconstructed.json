@@ -67,6 +67,65 @@
   "basis": "架空のシナリオ。実行記録は無い。"
  },
  {
+  "timestamp": "2026-09-20T01:45:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P1",
+  "task": null,
+  "type": "requirements.updated",
+  "actor": {
+   "kind": "human",
+   "name": "ベンダー A"
+  },
+  "summary": "要求 Spec の要件（REQ-001〜004）と性質（PROP）を登録した",
+  "payload": {
+   "requirements": [
+    {
+     "id": "REQ-001",
+     "title": "受注を登録できる",
+     "detail": "取引先・明細・納期を受け取り、受注番号を採番する"
+    },
+    {
+     "id": "REQ-002",
+     "title": "在庫を引き当てる",
+     "detail": "受注の明細ごとに在庫を引き当て、不足分は取り寄せとする"
+    },
+    {
+     "id": "REQ-003",
+     "title": "受注 API は契約に従う",
+     "detail": "受注 API v1.0（OpenAPI）の項目と必須・任意を変更しない"
+    },
+    {
+     "id": "REQ-004",
+     "title": "受注日時は UTC で保持する",
+     "detail": "表示のみ現地時間に変換する"
+    }
+   ],
+   "properties": [
+    {
+     "id": "PROP-001",
+     "requirements": [
+      "REQ-002"
+     ],
+     "property": "任意の受注について、引当数と取り寄せ数の合計は明細の数量に等しい"
+    },
+    {
+     "id": "PROP-002",
+     "requirements": [
+      "REQ-004"
+     ],
+     "property": "任意の時刻について、保存して読み出した受注日時は UTC で一致する"
+    }
+   ],
+   "added": [
+    "REQ-001",
+    "REQ-002",
+    "REQ-003",
+    "REQ-004"
+   ]
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
   "timestamp": "2026-09-20T02:00:00Z",
   "iteration": "2026-09-20 架空シナリオ",
   "phase": "P1",
@@ -569,6 +628,77 @@
   "basis": "架空のシナリオ。実行記録は無い。"
  },
  {
+  "timestamp": "2026-09-20T05:55:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P5",
+  "task": null,
+  "type": "traceability.updated",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent"
+  },
+  "summary": "トレーサビリティを更新した（REQ-004 はテスト未対応）",
+  "payload": {
+   "entries": [
+    {
+     "id": "REQ-001",
+     "title": "受注の登録",
+     "tests": [
+      "test_create_order"
+     ],
+     "code": [
+      "order.create"
+     ],
+     "adr": []
+    },
+    {
+     "id": "REQ-002",
+     "title": "在庫の引当",
+     "tests": [
+      "test_allocate"
+     ],
+     "code": [
+      "inventory.allocate"
+     ],
+     "adr": []
+    },
+    {
+     "id": "REQ-003",
+     "title": "契約への適合",
+     "tests": [
+      "test_contract_v1"
+     ],
+     "code": [
+      "api.orders"
+     ],
+     "adr": []
+    },
+    {
+     "id": "REQ-004",
+     "title": "受注日時の扱い",
+     "tests": [],
+     "code": [],
+     "adr": []
+    }
+   ],
+   "properties": [
+    {
+     "id": "PROP-001",
+     "tests": [
+      "test_prop_001_allocation"
+     ]
+    }
+   ],
+   "added": [
+    "REQ-001",
+    "REQ-002",
+    "REQ-003",
+    "REQ-004"
+   ]
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
   "timestamp": "2026-09-20T06:20:00Z",
   "iteration": "2026-09-20 架空シナリオ",
   "phase": "P4",
@@ -655,6 +785,82 @@
   "summary": "エスカレーションを閉じた（原因と対処を ADR に記録）",
   "payload": {
    "deviation": "escalation"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T06:30:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P5",
+  "task": null,
+  "type": "traceability.updated",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent"
+  },
+  "summary": "トレーサビリティを更新した（ローカル修正後、REQ-004 もテスト対応）",
+  "payload": {
+   "entries": [
+    {
+     "id": "REQ-001",
+     "title": "受注の登録",
+     "tests": [
+      "test_create_order"
+     ],
+     "code": [
+      "order.create"
+     ],
+     "adr": []
+    },
+    {
+     "id": "REQ-002",
+     "title": "在庫の引当",
+     "tests": [
+      "test_allocate"
+     ],
+     "code": [
+      "inventory.allocate"
+     ],
+     "adr": []
+    },
+    {
+     "id": "REQ-003",
+     "title": "契約への適合",
+     "tests": [
+      "test_contract_v1"
+     ],
+     "code": [
+      "api.orders"
+     ],
+     "adr": []
+    },
+    {
+     "id": "REQ-004",
+     "title": "受注日時の扱い",
+     "tests": [
+      "test_order_datetime_utc"
+     ],
+     "code": [
+      "order.normalize_datetime"
+     ],
+     "adr": []
+    }
+   ],
+   "properties": [
+    {
+     "id": "PROP-001",
+     "tests": [
+      "test_prop_001_allocation"
+     ]
+    },
+    {
+     "id": "PROP-002",
+     "tests": [
+      "test_prop_002_datetime"
+     ]
+    }
+   ],
+   "added": []
   },
   "basis": "架空のシナリオ。実行記録は無い。"
  },

@@ -14,39 +14,154 @@
     {
       "iteration": "2026-09 変更対応",
       "items": [
-        {"sha": "307d382", "phase": "P1", "summary": "設計レビューの結果と、それを受けた Spec 改訂（REQ-011/012・PROP-007〜009・ADR-0003）をコミットした"},
-        {"sha": "a664bdd"},
-        {"sha": "6f5df62"},
-        {"sha": "221a47e"},
-        {"sha": "34e625e"},
-        {"sha": "05b35b4"},
-        {"sha": "d652475", "phase": "P5", "summary": "トレーサビリティを TASK-AW-002 後の状態に更新した"},
-        {"sha": "f3ccb67", "phase": "P5", "summary": "品質メトリクス（TASK-AW-002 の前後）をコミットした"},
-        {"sha": "d8ff42b", "phase": "P6", "summary": "逆生成した工程成果物・設計書・品質系納品物をコミットした"}
+        {
+          "sha": "307d382",
+          "phase": "P1",
+          "summary": "設計レビューの結果と、それを受けた Spec 改訂（REQ-011/012・PROP-007〜009・ADR-0003）をコミットした"
+        },
+        {
+          "sha": "a664bdd"
+        },
+        {
+          "sha": "6f5df62"
+        },
+        {
+          "sha": "221a47e"
+        },
+        {
+          "sha": "34e625e"
+        },
+        {
+          "sha": "05b35b4"
+        },
+        {
+          "sha": "d652475",
+          "phase": "P5",
+          "summary": "トレーサビリティを TASK-AW-002 後の状態に更新した"
+        },
+        {
+          "sha": "f3ccb67",
+          "phase": "P5",
+          "summary": "品質メトリクス（TASK-AW-002 の前後）をコミットした"
+        },
+        {
+          "sha": "d8ff42b",
+          "phase": "P6",
+          "summary": "逆生成した工程成果物・設計書・品質系納品物をコミットした"
+        }
       ]
     }
   ],
   "approvals": [
-    {"sha": "7159a94", "file": "docs/requirement-spec.md", "gate": "customer_approval", "phase": "P1",
-     "iteration": "2026-06 初版", "recorded_by": "human",
-     "summary": "要求 Spec の承認欄に承認が記入された（顧客責任者はサンプル、PM は著者）"},
-    {"sha": "307d382", "file": "docs/requirement-spec.md", "gate": "customer_approval", "phase": "P1",
-     "iteration": "2026-09 変更対応", "recorded_by": "ai",
-     "summary": "AI が要求 Spec の承認欄の日付を更新し、承認済み（✅）にした"},
-    {"sha": "307d382", "file": "docs/design-spec.md", "gate": "design_review", "phase": "P2",
-     "iteration": "2026-09 変更対応", "recorded_by": "ai",
-     "summary": "AI が Design Spec に承認欄を追加し、承認済み（✅）にした"}
+    {
+      "sha": "7159a94",
+      "file": "docs/requirement-spec.md",
+      "gate": "customer_approval",
+      "phase": "P1",
+      "iteration": "2026-06 初版",
+      "recorded_by": "human",
+      "summary": "要求 Spec の承認欄に承認が記入された（顧客責任者はサンプル、PM は著者）"
+    },
+    {
+      "sha": "307d382",
+      "file": "docs/requirement-spec.md",
+      "gate": "customer_approval",
+      "phase": "P1",
+      "iteration": "2026-09 変更対応",
+      "recorded_by": "ai",
+      "summary": "AI が要求 Spec の承認欄の日付を更新し、承認済み（✅）にした"
+    },
+    {
+      "sha": "307d382",
+      "file": "docs/design-spec.md",
+      "gate": "design_review",
+      "phase": "P2",
+      "iteration": "2026-09 変更対応",
+      "recorded_by": "ai",
+      "summary": "AI が Design Spec に承認欄を追加し、承認済み（✅）にした"
+    }
   ],
   "sessions": [
-    {"id": "fc354a38-9bb8-446e-852e-128e508b5090", "iteration": "2026-09 変更対応", "phase": "P2", "task": null},
-    {"id": "46cebde4-1659-4d0b-8f55-68e525c4980e", "iteration": "2026-09 変更対応", "phase": "P1", "task": null},
-    {"id": "0b61d029-5196-4593-942f-68e9ad9baff5", "iteration": "2026-09 変更対応", "phase": "P4", "task": "TASK-AW-002"},
-    {"id": "18f1db6f-f826-48a8-9994-10af153be084", "iteration": "2026-09 変更対応", "phase": "P4", "task": "TASK-AW-002"},
-    {"id": "264c8fbe-f69a-4cfd-bc1a-8f781f6ef1d9", "iteration": "2026-09 変更対応", "phase": "P5", "task": null},
-    {"id": "dd4f42e7-d8df-486c-8790-e64c5a8437b7", "iteration": "2026-09 変更対応", "phase": "P5", "task": null},
-    {"id": "cc91f266-c2d4-414d-a82b-40d64cbf394f", "iteration": "2026-09 変更対応", "phase": "P6", "task": null}
+    {
+      "id": "fc354a38-9bb8-446e-852e-128e508b5090",
+      "iteration": "2026-09 変更対応",
+      "phase": "P2",
+      "task": null
+    },
+    {
+      "id": "46cebde4-1659-4d0b-8f55-68e525c4980e",
+      "iteration": "2026-09 変更対応",
+      "phase": "P1",
+      "task": null
+    },
+    {
+      "id": "0b61d029-5196-4593-942f-68e9ad9baff5",
+      "iteration": "2026-09 変更対応",
+      "phase": "P4",
+      "task": "TASK-AW-002"
+    },
+    {
+      "id": "18f1db6f-f826-48a8-9994-10af153be084",
+      "iteration": "2026-09 変更対応",
+      "phase": "P4",
+      "task": "TASK-AW-002"
+    },
+    {
+      "id": "264c8fbe-f69a-4cfd-bc1a-8f781f6ef1d9",
+      "iteration": "2026-09 変更対応",
+      "phase": "P5",
+      "task": null
+    },
+    {
+      "id": "dd4f42e7-d8df-486c-8790-e64c5a8437b7",
+      "iteration": "2026-09 変更対応",
+      "phase": "P5",
+      "task": null
+    },
+    {
+      "id": "cc91f266-c2d4-414d-a82b-40d64cbf394f",
+      "iteration": "2026-09 変更対応",
+      "phase": "P6",
+      "task": null
+    }
   ],
   "evidence": [
-    {"task": "TASK-AW-002", "iteration": "2026-09 変更対応", "phase": "P4"}
+    {
+      "task": "TASK-AW-002",
+      "iteration": "2026-09 変更対応",
+      "phase": "P4"
+    }
+  ],
+  "requirements": [
+    {
+      "sha": "7159a94",
+      "phase": "P1",
+      "iteration": "2026-06 初版",
+      "actor": {
+        "kind": "human"
+      },
+      "summary": "要求 Spec の要件（REQ-001〜010）と性質（PROP）を登録した"
+    },
+    {
+      "sha": "307d382",
+      "phase": "P1",
+      "iteration": "2026-09 変更対応"
+    }
+  ],
+  "traceability": [
+    {
+      "sha": "7159a94",
+      "phase": "P5",
+      "iteration": "2026-06 初版",
+      "actor": {
+        "kind": "human"
+      },
+      "summary": "トレーサビリティ（要件 ⇔ テスト ⇔ 実装）を作成した"
+    },
+    {
+      "sha": "d652475",
+      "phase": "P5",
+      "iteration": "2026-09 変更対応"
+    }
   ]
 }
