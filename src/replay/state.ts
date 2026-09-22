@@ -84,6 +84,42 @@ export interface Violation {
   missing: PhaseId[];
 }
 
+export interface Requirement {
+  id: string;
+  title: string;
+  detail: string;
+}
+
+export interface PropertyItem {
+  id: string;
+  requirements: string[];
+  property: string;
+}
+
+export interface RequirementsView {
+  items: Requirement[];
+  properties: PropertyItem[];
+  /** 直前の更新で追加された ID */
+  added: string[];
+  updatedBy: string | null;
+}
+
+export interface TraceEntry {
+  id: string;
+  title: string;
+  tests: string[];
+  code: string[];
+  adr: string[];
+}
+
+export interface TraceabilityView {
+  entries: TraceEntry[];
+  properties: { id: string; tests: string[] }[];
+  /** テストが対応していない要件（要求にあるがテストが無い、または対応表に無い） */
+  untraced: string[];
+  updatedBy: string | null;
+}
+
 export interface ProjectView {
   name: string;
   processVersion: string | null;
@@ -101,5 +137,7 @@ export interface HubState {
   approvals: ApprovalView[];
   deviations: DeviationView[];
   violations: Violation[];
+  requirements: RequirementsView;
+  traceability: TraceabilityView;
   counts: Record<Provenance, number>;
 }

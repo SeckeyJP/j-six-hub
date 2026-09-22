@@ -19,7 +19,8 @@ describe("要求（REQ・PROP）", () => {
       ["001", "002", "003", "004", "005", "006", "007", "008", "009", "010"].map((n) => `REQ-${n}`),
     );
     expect(s.requirements.added).toEqual(s.requirements.items.map((r) => r.id));
-    expect(s.requirements.properties.length).toBeGreaterThan(0);
+    // 2026-06 の Spec には PROP の表がまだ無い（J-SIX v2.1 で導入）
+    expect(s.requirements.properties).toEqual([]);
     expect(s.requirements.updatedBy).toBe(project("approval-workflow").events[k]!.id);
   });
 
@@ -29,6 +30,7 @@ describe("要求（REQ・PROP）", () => {
     const s = at("approval-workflow", k + 1);
     expect(s.requirements.added).toEqual(["REQ-011", "REQ-012"]);
     expect(s.requirements.items).toHaveLength(12);
+    expect(s.requirements.properties.map((x) => x.id)).toContain("PROP-009");
   });
 });
 
