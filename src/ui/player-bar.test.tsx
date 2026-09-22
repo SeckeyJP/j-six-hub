@@ -36,7 +36,7 @@ describe("再生バー", () => {
 
   it("速度のセグメントを押すと切り替わる", async () => {
     const seen: number[] = [];
-    show({ setSpeed: (s: number) => seen.push(s) });
+    show({ setSpeed: ((s: 1 | 4 | 16) => void seen.push(s)) as Player["setSpeed"] });
     await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "×4" }));
     expect(seen).toEqual([4]);
   });

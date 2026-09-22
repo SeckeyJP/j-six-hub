@@ -22,8 +22,9 @@ export const CONTROL_LABEL: Record<ControlKind, string> = {
 };
 
 /** プロジェクト名は履歴では短く出す */
-function shortName(name: string): string {
-  return name.replace(/ワークフロー|発行|連携/g, (m) => (m === "ワークフロー" ? "" : m === "発行" ? "" : ""));
+/** 履歴の行は幅が狭いので、プロジェクト名の末尾の語を落として短くする */
+export function shortName(name: string): string {
+  return name.replace(/ワークフロー|発行|連携/g, "");
 }
 
 type Filter = "all" | "control" | "project";
