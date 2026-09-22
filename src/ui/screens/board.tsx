@@ -16,7 +16,8 @@ export function Board({ state, process }: ScreenProps) {
           return (
             <section key={p.id} aria-labelledby={headingId} className={`phase-card status-${p.status}`}>
               <h3 id={headingId}>
-                {p.id} {p.name}
+                {/* 狭い画面では記号・名前・状態を横1行に並べるため、要素を分ける */}
+                <span className="phase-id">{p.id}</span> <span className="phase-name">{p.name}</span>
               </h3>
               <p className={`status-pill status-${p.status}`}>
                 {PHASE_STATUS[p.status]}
@@ -31,8 +32,12 @@ export function Board({ state, process }: ScreenProps) {
                 <ol className="layers">
                   {gate.layers.map((l) => (
                     <li key={l.id}>
-                      {l.id} {l.name}
-                      {l.optional && "（任意）"}
+                      <span className="layer-id">{l.id}</span>
+                      <span className="layer-name">
+                        {" "}
+                        {l.name}
+                        {l.optional && "（任意）"}
+                      </span>
                     </li>
                   ))}
                 </ol>

@@ -34,7 +34,7 @@ describe("ガイド（4ステップ）", () => {
     render(<App data={program} process={processDef} />);
     await userEvent.click(within(tour()).getByRole("button", { name: /見どころへ移動/ }));
     const n = firstHighlight(program.timeline, controlPointsOf(program, processDef), highlightKey(program, processDef))!;
-    expect(screen.getByText(`${n} / ${program.timeline.length}`)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(`${n} / ${program.timeline.length}`);
     expect(screen.queryByRole("dialog", { name: "ガイド" })).toBeNull();
   });
 

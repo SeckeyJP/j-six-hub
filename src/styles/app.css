@@ -247,24 +247,47 @@ tr.warn td { color: var(--danger); }
   .sidebar { overflow: hidden; }
   .sidebar nav { display: flex; align-items: center; gap: 0.4rem; overflow-x: auto; min-width: 0; max-width: 100%; }
   .sidebar ul { display: flex; gap: 0.4rem; margin: 0; }
-  .sidebar li a, .nav-home, .screen-nav a { white-space: nowrap; padding: 0.3rem 0.6rem; margin: 0; border: 1px solid var(--line); border-radius: 999px; font-size: 0.82rem; }
-  .sidebar .mini-phases, .sidebar .badge-slot { display: none; }
-  /* 注意が無いときも幅を確保し、項目の高さを変えない（REQ-022） */
-  .alert-count { display: inline; margin-left: 0.3rem; }
-  .project-name { display: inline-flex; }
+  .sidebar li a, .nav-home, .screen-nav a { white-space: nowrap; padding: 0.35rem 0.7rem; margin: 0; border: 1px solid var(--line); border-radius: 999px; font-size: 0.82rem; }
+  .sidebar .mini-phases, .sidebar .badge-slot, .sidebar .project-line { display: none; }
+  /* チップの中に停止の件数を入れる。0 件でも場所を確保し、高さを変えない（REQ-022） */
+  .sidebar li a { display: flex; align-items: center; }
+  .project-head { gap: 0.35rem; }
+  .stop-badge { font-size: 0.68rem; }
+  .sidebar li.selected a, .screen-nav a[aria-current="page"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .sidebar li.selected .project-dot { outline: 1px solid var(--bg); }
   .screen-nav { border-top: none; padding-top: 0.3rem; }
-  .player-info .time { font-size: 0.72rem; }
+  .screen-nav a { gap: 0.35rem; }
   .playerbar { position: sticky; bottom: 0; }
-  /* 狭い画面では再生バーを2段に詰める（操作＋位置／スライダーと速度） */
-  .player { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "buttons info" "track speed"; gap: 0.3rem 0.5rem; padding: 0.4rem 0.6rem; }
-  .player-buttons { grid-area: buttons; }
-  .player-info { grid-area: info; flex-direction: row; align-items: baseline; gap: 0.4rem; justify-content: flex-end; height: 1.3rem; overflow: hidden; min-width: 0; }
-  .player-info .time { overflow: hidden; text-overflow: ellipsis; }
-  .speed { font-size: 0.76rem; gap: 0.3rem; min-width: 0; }
-  .player-track { grid-area: track; padding-top: 0.5rem; }
-  .speed { grid-area: speed; justify-self: end; }
-  .pipeline { grid-template-columns: repeat(7, 9rem); overflow-x: auto; }
+  /* 再生バーは上段にスライダー、下段に押しやすいボタン、その下に速度と位置を置く */
+  .player {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "track track" "buttons buttons" "speed info";
+    gap: 0.3rem 0.5rem; padding: 0.4rem 0.6rem;
+  }
+  .player-track { grid-area: track; padding-top: 0.4rem; }
+  .player-buttons { grid-area: buttons; gap: 0.35rem; }
+  .player-buttons button { flex: 1 1 0; min-width: 0; height: 2.6rem; font-size: 1rem; }
+  .player-buttons .next-control { flex: 1.6 1 0; font-size: 0.82rem; }
+  .player-info { grid-area: info; flex-direction: row; align-items: baseline; gap: 0.4rem; justify-content: flex-end; height: 1.2rem; overflow: hidden; min-width: 0; }
+  .player-info .time { font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; }
+  .speed { grid-area: speed; font-size: 0.76rem; gap: 0.3rem; min-width: 0; }
+  /* 工程ボードは横スクロールをやめ、1工程1行の縦リストにする */
+  .pipeline { grid-template-columns: minmax(0, 1fr); gap: 0.35rem; }
+  .phase-card { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr) auto; column-gap: 0.5rem; align-items: center; padding: 0.45rem 0.6rem; }
+  .phase-card:not(:last-child)::after { content: none; }
+  .phase-card h3 { display: contents; }
+  .phase-id { grid-column: 1; grid-row: 1 / span 3; font-size: 0.82rem; font-weight: 700; color: var(--muted); }
+  .phase-name { grid-column: 2; grid-row: 1; font-size: 0.88rem; }
+  .phase-card .gate { grid-column: 2; grid-row: 2; font-size: 0.74rem; color: var(--muted); margin: 0; }
+  .phase-card .reopened { grid-column: 2; grid-row: 3; font-size: 0.72rem; margin: 0; }
+  .phase-card .layers { grid-column: 2; grid-row: 4; display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0; margin: 0.15rem 0 0; list-style: none; }
+  .phase-card .layers .layer-name { display: none; }
+  .phase-card .layers .layer-id { border: 1px solid var(--line); border-radius: 4px; padding: 0 0.3rem; font-size: 0.68rem; }
+  .phase-card .status-pill { grid-column: 3; grid-row: 1 / span 3; margin: 0; }
   .board-notes { grid-template-columns: 1fr; }
+  /* 帯は1行に収める。時刻は再生バーにも出ているので省く */
+  .now-band { font-size: 0.82rem; }
+  .band-time, .band-label { display: none; }
 }
 .help-wrap { position: relative; display: inline-block; }
 .help-bubble { top: 1.6rem; left: -1rem; width: 20rem; display: block; font-size: 0.84rem; line-height: 1.55; }
@@ -297,9 +320,11 @@ tr.warn td { color: var(--danger); }
 .status-line { -webkit-line-clamp: 1; height: 1.6rem; }
 .alerts { min-height: 3.4rem; align-content: flex-start; }
 @media (max-width: 720px) {
-  .now-headline, .now-headline.now-empty { height: calc(3 * var(--lh) * 1.12rem); -webkit-line-clamp: 3; }
-  .now-detail { height: calc(3 * var(--lh) * 0.9rem); -webkit-line-clamp: 3; }
-  .now-hub { height: calc(3 * var(--lh) * 0.9rem + 0.9rem); -webkit-line-clamp: 3; }
+  /* 狭い画面は1行に入る字数が少ない。欄の高さは固定したまま、入りきらない文は中で繰れるようにする（REQ-022） */
+  .now-headline, .now-headline.now-empty { display: block; -webkit-line-clamp: unset; height: calc(2 * var(--lh) * 1.12rem); overflow-y: auto; }
+  .now-detail { display: block; -webkit-line-clamp: unset; height: calc(3 * var(--lh) * 0.9rem); overflow-y: auto; }
+  .now-hub { height: calc(2 * var(--lh) * 0.9rem + 1.7rem); }
+  .now-hub .judge-text { -webkit-line-clamp: 2; }
   .player-info { width: auto; }
 }
 .now-headline.now-empty { margin: 0.1rem 0 0.2rem; }
@@ -370,3 +395,8 @@ tr.untraced td { background: color-mix(in srgb, var(--danger) 9%, transparent); 
 .event-basis { color: var(--reconstructed); font-size: 0.72rem; }
 .events li.fictional { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--fictional) 6%, transparent) 10px 12px); }
 .events li.control { border-radius: 0 8px 8px 0; }
+
+/* 履歴：広い画面では右の欄に常時出ているので、画面としては出さない（REQ-028） */
+@media (min-width: 721px) { .screen-nav .to-history { display: none; } }
+.timeline.in-main { background: transparent; border: none; padding: 0; overflow: visible; }
+.timeline.in-main h2 { font-size: 1.05rem; }

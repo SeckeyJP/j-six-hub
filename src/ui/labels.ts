@@ -47,5 +47,8 @@ export const SCREENS = [
   { id: "evidence", label: "監査記録" },
 ] as const;
 
+/** 履歴の画面 ID。SCREENS には入れない（本文に出すのは履歴そのもので、案件の画面ではない） */
+export const HISTORY_SCREEN = "history";
+
 export const ACTOR_KIND = { human: "人間", ai: "AI", system: "Hub" } as const;
 export const ACTOR_ICON = { human: "👤", ai: "🤖", system: "⚙" } as const;

@@ -2,10 +2,13 @@ import type { ReactNode } from "react";
 import type { ProgramState } from "../replay/program";
 import type { HubState } from "../replay/state";
 import type { ProgramData } from "../types/program";
-import { PHASE_STATUS, SCREENS } from "./labels";
+import { HISTORY_SCREEN, PHASE_STATUS, SCREENS } from "./labels";
 import { FictionalBadge } from "./provenance-badge";
 import type { Route } from "./route";
 import { alertsOf } from "./screens/home";
+
+/** 狭い画面では履歴を右の欄ではなく別画面として開く（広い画面ではチップを出さない） */
+const SCREEN_LINKS = [...SCREENS, { id: HISTORY_SCREEN, label: "履歴" }];
 
 /** 画面ごとに添える件数（0 のときは出さない） */
 function screenCount(id: string, s: HubState): number {
@@ -68,12 +71,13 @@ export function Sidebar({ data, state, route, help }: { data: ProgramData; state
       {selected && selectedState && (
         <nav aria-label="画面" className="screen-nav">
           <h2>{data.projects.find((p) => p.id === selected)?.name} の画面</h2>
-          {SCREENS.map((sc) => {
+          {SCREEN_LINKS.map((sc) => {
             const count = screenCount(sc.id, selectedState);
             return (
               <a
                 key={sc.id}
                 href={`#/p/${selected}/${sc.id}`}
+                className={sc.id === HISTORY_SCREEN ? "to-history" : undefined}
                 aria-current={route.kind === "project" && route.screen === sc.id ? "page" : undefined}
               >
                 <span>{sc.label}</span>

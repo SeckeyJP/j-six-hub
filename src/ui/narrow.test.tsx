@@ -57,7 +57,7 @@ describe("狭い画面：工程ボードを縦リストにできる形にする"
     expect(card.querySelector(".phase-id")).toHaveTextContent("P0");
     expect(card.querySelector(".phase-name")).toHaveTextContent("憲法");
     // 見出しとしての意味は保つ（記号＋名前で1つの見出し）
-    expect(within(card as HTMLElement).getByRole("heading", { level: 3 })).toHaveTextContent("P0 憲法");
+    expect(within(card as HTMLElement).getByRole("heading", { level: 3 })).toHaveTextContent("P0 プロジェクト憲法策定");
   });
 
   it("ゲートの層は、記号と名前を別の要素にする", () => {

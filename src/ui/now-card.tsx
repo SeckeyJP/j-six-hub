@@ -41,7 +41,11 @@ export function NowCard({
       <p className={`now-band ${control ? "band-control" : ""}`} data-testid="now-band">
         <span className="band-title">{control ? "⚑ Hub が止めた場面" : "通常の出来事"}</span>
         <span className="band-pos">
-          いま起きたこと ・ {n} / {total}
+          {/* 狭い画面では見出しの語を隠し、位置だけを残す */}
+          <span className="band-label">いま起きたこと ・ </span>
+          <span className="band-n">
+            {n} / {total}
+          </span>
         </span>
         <span className="band-time">{item ? formatTime(item.event.timestamp) : "開始前"}</span>
         {help}

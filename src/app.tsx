@@ -7,6 +7,7 @@ import type { ProcessDefinition } from "./types/process";
 import type { Route } from "./ui/route";
 import { firstHighlight, nextControl } from "./ui/control-nav";
 import { HelpTip, Tour, useGuide } from "./ui/guide";
+import { HISTORY_SCREEN } from "./ui/labels";
 import { NowCard } from "./ui/now-card";
 import { PlayerBar } from "./ui/player-bar";
 import { FictionalBadge } from "./ui/provenance-badge";
@@ -48,6 +49,20 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
   }, [current, currentProject, process, state]);
 
   const selected = route.kind === "project" ? data.projects.find((p) => p.id === route.id) : undefined;
+  // 狭い画面では右の欄を出さず、履歴を本文として開く（REQ-028）
+  const historyView = route.kind === "project" && route.screen === HISTORY_SCREEN;
+  const timeline = (
+    <Timeline
+      data={data}
+      process={process}
+      n={player.n}
+      controlPoints={controlPoints}
+      projectId={selected?.id ?? null}
+      inMain={historyView}
+      help={<HelpTip id="timeline" />}
+      legendHelp={<HelpTip id="legend" />}
+    />
+  );
 
   return (
     <div className="shell">
@@ -78,7 +93,9 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
           help={<HelpTip id="now" />}
         />
         <div data-guide="screen">
-          {selected ? (
+          {historyView ? (
+            timeline
+          ) : selected ? (
             <ProjectScreen
               project={selected}
               screen={route.kind === "project" ? route.screen : "board"}
@@ -100,15 +117,7 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
           出来事: J-SIX の examples（approval-workflow・monthly-billing）の実行記録から抽出した実測と、記録の無い部分を組み立てた再構成。受発注連携は架空。
         </p>
       </main>
-      <Timeline
-        data={data}
-        process={process}
-        n={player.n}
-        controlPoints={controlPoints}
-        projectId={selected?.id ?? null}
-        help={<HelpTip id="timeline" />}
-        legendHelp={<HelpTip id="legend" />}
-      />
+      {!historyView && timeline}
       <footer className="playerbar">
         <PlayerBar player={player} timeline={data.timeline} controlPoints={controlPoints} nextControl={nextStop} help={<HelpTip id="player" />} />
       </footer>

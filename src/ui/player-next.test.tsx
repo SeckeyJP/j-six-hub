@@ -22,7 +22,7 @@ describe("AC-013: 次の停止へ", () => {
     renderApp();
     await userEvent.click(screen.getByRole("button", { name: "次の停止へ" }));
     const expected = nextControl(program.timeline, points, 0)!;
-    expect(screen.getByText(`${expected} / ${program.timeline.length}`)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(`${expected} / ${program.timeline.length}`);
   });
 
   it("以降に停止が無ければ押せない", async () => {

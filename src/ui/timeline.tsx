@@ -35,6 +35,7 @@ export function Timeline({
   n,
   controlPoints,
   projectId,
+  inMain = false,
   help,
   legendHelp,
 }: {
@@ -43,6 +44,8 @@ export function Timeline({
   n: number;
   controlPoints: Map<string, ControlKind[]>;
   projectId: string | null;
+  /** 本文として開くか（狭い画面では右の欄ではなく画面として出す。REQ-028） */
+  inMain?: boolean;
   help?: ReactNode;
   legendHelp?: ReactNode;
 }) {
@@ -69,7 +72,7 @@ export function Timeline({
   );
 
   return (
-    <aside className="timeline" aria-label="履歴" data-guide="timeline">
+    <aside className={`timeline ${inMain ? "in-main" : ""}`} aria-label="履歴" data-guide="timeline">
       <h2>
         履歴 {help}
         <span className="sub">新しい順 ・ {shown.length} 件</span>

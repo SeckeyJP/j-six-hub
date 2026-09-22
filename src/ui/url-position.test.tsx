@@ -18,12 +18,12 @@ function renderAt(hash: string) {
 describe("再生位置の URL（REQ-026）", () => {
   it("AC-014: ?n=46 で開くと 46 件目まで適用した状態になる", () => {
     renderAt("#/p/approval-workflow/board?n=46");
-    expect(screen.getByText(`46 / ${TOTAL}`)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(`46 / ${TOTAL}`);
   });
 
   it("範囲外の n は端に丸める", () => {
     renderAt(`#/?n=${TOTAL + 100}`);
-    expect(screen.getByText(`${TOTAL} / ${TOTAL}`)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(`${TOTAL} / ${TOTAL}`);
   });
 
   it("再生位置を動かすと URL に反映する", async () => {
@@ -37,6 +37,6 @@ describe("再生位置の URL（REQ-026）", () => {
     const nav = screen.getByRole("navigation", { name: "画面" });
     await userEvent.click(within(nav).getByRole("link", { name: "承認" }));
     expect(window.location.hash).toContain("n=46");
-    expect(screen.getByText(`46 / ${TOTAL}`)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(`46 / ${TOTAL}`);
   });
 });
