@@ -27,14 +27,15 @@ export function Home({ data, state, process }: { data: ProgramData; state: Progr
     <div className="home">
       <p className="lead">
         Hub は、複数のプロジェクトの工程（Phase）・承認・品質検査・監査記録を横断して管理します。
-        プロジェクトをまたいで「どこまで進んだか」「どこで Hub が止めたか」を一目で見られます。
+        プロジェクトをまたいで「どこまで進んだか」「どこで品質検査が停止したか」を一目で見られます。
       </p>
       <div className="project-cards">
         {data.projects.map((p) => {
           const s = state.projects[p.id]!;
           const a = alertsOf(s);
           const measured = p.events.filter((e) => e.provenance === "measured").length;
-          const currentPhase = [...s.phases].reverse().find((ph) => ph.status !== "not_started");
+          const currentPhase = [...s.phases].reverse().find((ph) => ph.status === "in_progress" && ph.mode !== "continuous")
+            ?? [...s.phases].reverse().find((ph) => ph.status !== "not_started");
           return (
             <article key={p.id} aria-label={p.name} className={`project-card ${p.fictional ? "fictional" : ""}`} data-project={p.id}>
               <div className="card-head">

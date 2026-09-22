@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { processDef, program } from "../data";
 import type { HubEvent } from "../types/events";
-import { controlKinds, controlPointsOf, narrate } from "./narrate";
+import { controlKinds, controlPointsOf, narrate, stopPointsOf } from "./narrate";
 import { replay } from "./replay";
 
 const byId = (id: string) => program.projects.find((p) => p.id === id)!;
@@ -51,6 +51,15 @@ describe("controlKinds（統制ポイント）", () => {
         "task.dispatched", "ai.agent.started", "hook.blocked", "requirements.updated",
       ]).toContain(item.event.type);
     }
+  });
+});
+
+describe("停止と統制記録の区別", () => {
+  it("停止位置にはゲート停止だけを含め、無効な承認や逸脱は含めない", () => {
+    const stops = stopPointsOf(program, processDef);
+    for (const kinds of stops.values()) expect(kinds).toContain("gate_stopped");
+    const invalid = at("approval-workflow", (e) => e.type === "gate.approved" && e.actor.kind === "ai");
+    expect(stops.has(`approval-workflow:${invalid.ev.id}`)).toBe(false);
   });
 });
 

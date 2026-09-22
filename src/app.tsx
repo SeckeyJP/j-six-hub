@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { controlPointsOf, highlightKey, narrate } from "./replay/narrate";
+import { controlPointsOf, highlightKey, narrate, stopPointsOf } from "./replay/narrate";
 import { replayProgram } from "./replay/program";
 import { replay } from "./replay/replay";
 import type { ProgramData } from "./types/program";
@@ -36,7 +36,8 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
   useUrlPosition(route, player.n);
   const state = useMemo(() => replayProgram(data, process, player.n), [data, process, player.n]);
   const controlPoints = useMemo(() => controlPointsOf(data, process), [data, process]);
-  const nextStop = useMemo(() => nextControl(data.timeline, controlPoints, player.n), [data.timeline, controlPoints, player.n]);
+  const stopPoints = useMemo(() => stopPointsOf(data, process), [data, process]);
+  const nextStop = useMemo(() => nextControl(data.timeline, stopPoints, player.n), [data.timeline, stopPoints, player.n]);
   const highlight = useMemo(() => firstHighlight(data.timeline, controlPoints, highlightKey(data, process)), [data, process, controlPoints]);
   useKeyboard(player);
 
@@ -128,7 +129,7 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
       </main>
       {!historyView && timeline}
       <footer className="playerbar">
-        <PlayerBar player={player} timeline={data.timeline} controlPoints={controlPoints} nextControl={nextStop} help={<HelpTip id="player" />} />
+        <PlayerBar player={player} timeline={data.timeline} controlPoints={stopPoints} nextControl={nextStop} help={<HelpTip id="player" />} />
       </footer>
       <Tour guide={guide} highlight={highlight} onSeek={player.seek} />
     </div>

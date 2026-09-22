@@ -14,8 +14,10 @@ function marksOf(state: HubState, phase: PhaseId) {
 /** 工程ボード：工程を左から右へ並べ、各 Phase の出口の品質検査と、そこで働いた統制を示す */
 export function Board({ state, process, onOpenEvent }: ScreenProps) {
   const openDeviations = state.deviations.filter((d) => d.closedBy === null);
-  // 「いまここ」は、まだ始まっていない工程を除いた最後の工程
-  const here = [...state.phases].reverse().find((p) => p.status !== "not_started")?.id ?? null;
+  // 逆戻り後の再承認待ちではなく、実際に作業している工程を示す
+  const here = [...state.phases].reverse().find((p) => p.status === "in_progress" && p.mode !== "continuous")?.id
+    ?? [...state.phases].reverse().find((p) => p.status !== "not_started")?.id
+    ?? null;
   return (
     <>
       <p className="lead">
@@ -48,11 +50,11 @@ export function Board({ state, process, onOpenEvent }: ScreenProps) {
                   ⚠ 順序違反 {marks.violations}
                 </span>
                 <span
-                  className={`phase-mark reopened ${p.reopened && p.status !== "approved" ? "" : "is-empty"}`}
+                  className={`phase-mark reopened ${p.needsReapproval ? "" : "is-empty"}`}
                   data-testid="mark-reopened"
-                  title="Phase 逆戻りで開き直した工程"
+                  title="Phase 逆戻り後に再承認が必要な工程"
                 >
-                  ↩ 逆戻り
+                  ↩ 再承認待ち
                 </span>
               </p>
               <p className="gate">🚪 {gate ? gate.name : "ゲートなし"}</p>

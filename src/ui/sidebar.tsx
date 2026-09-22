@@ -19,7 +19,8 @@ function screenCount(id: string, s: HubState): number {
 }
 
 function currentLine(p: { events: unknown[] }, s: HubState, measured: number): string {
-  const phase = [...s.phases].reverse().find((x) => x.status !== "not_started");
+  const phase = [...s.phases].reverse().find((x) => x.status === "in_progress" && x.mode !== "continuous")
+    ?? [...s.phases].reverse().find((x) => x.status !== "not_started");
   const where = phase ? `${phase.id} ${phase.name} ${PHASE_STATUS[phase.status]}` : "未登録";
   return `${where} ・ 実測 ${measured}/${p.events.length}`;
 }

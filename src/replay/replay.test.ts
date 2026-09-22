@@ -150,7 +150,7 @@ describe("承認の有効性", () => {
 // --- 逸脱 ---------------------------------------------------------------------
 
 describe("逸脱", () => {
-  it("Phase 逆戻りで戻り先以降（P0 を除く）を進行中に戻し、開き直した印を付ける", () => {
+  it("Phase 逆戻りでは戻り先を作業中にし、既承認の後続工程は再承認待ちとして残す", () => {
     const list = [
       ev({ type: "project.registered", phase: "P0" }),
       approve("customer_approval", { kind: "human", role: "customer" }),
@@ -159,10 +159,22 @@ describe("逸脱", () => {
     ];
     const s = run(list);
     expect(phase(s, "P0").status).toBe("in_progress");
-    expect(["P1", "P2", "P3", "P4", "P5", "P6"].map((id) => [phase(s, id).status, phase(s, id).reopened])).toEqual(
-      Array(6).fill(["in_progress", true]),
+    expect(phase(s, "P1")).toMatchObject({ status: "in_progress", reopened: true, needsReapproval: true, approvedBy: list[1]!.id });
+    expect(phase(s, "P2")).toMatchObject({ status: "approved", reopened: true, needsReapproval: true, approvedBy: list[2]!.id });
+    expect(["P3", "P4", "P5", "P6"].map((id) => [phase(s, id).status, phase(s, id).reopened, phase(s, id).needsReapproval])).toEqual(
+      Array(4).fill(["not_started", false, false]),
     );
-    expect(phase(s, "P1").approvedBy).toBeNull();
+    expect(phase(s, "P1").approvedBy).toBe(list[1]!.id);
+  });
+
+  it("再承認待ちの前工程を通らずに後続工程を始めると順序違反にする", () => {
+    const list = [
+      approve("customer_approval", { kind: "human", role: "customer" }),
+      approve("design_review"),
+      ev({ type: "deviation.opened", phase: "P2", payload: { deviation: "phase_rollback", to_phase: "P1" } }),
+      ev({ type: "commit.created", phase: "P3" }),
+    ];
+    expect(run(list).violations.at(-1)).toMatchObject({ phase: "P3", missing: ["P1", "P2"] });
   });
 
   it("逸脱を開き、同じ種類で最後に開いたものを閉じる", () => {
@@ -219,6 +231,29 @@ describe("タスク", () => {
     expect(phase(s, "P4").status).toBe("approved");
   });
 
+  it("承認済みの P4 で同じタスクを再実行すると、合格を再評価するまで完了にしない", () => {
+    const list = [
+      ev({ type: "task.dispatched", phase: "P4", task: T }),
+      ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", results: [] } }),
+      ev({ type: "ai.session.started", phase: "P4", task: T }),
+    ];
+    expect(phase(run(list), "P4").status).toBe("in_progress");
+    const rerunPassed = [...list, ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", results: [] } })];
+    expect(phase(run(rerunPassed), "P4").status).toBe("approved");
+  });
+
+  it("承認済みの P4 に追加したタスクが失敗したら未完了に戻り、合格後に完了する", () => {
+    const list = [
+      ev({ type: "task.dispatched", phase: "P4", task: T }),
+      ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", results: [] } }),
+      ev({ type: "task.dispatched", phase: "P4", task: "TASK-AW-003" }),
+      ev({ type: "gate.evaluated", phase: "P4", task: "TASK-AW-003", payload: { outcome: "failed", results: [] } }),
+    ];
+    expect(phase(run(list), "P4").status).toBe("in_progress");
+    const addedPassed = [...list, ev({ type: "gate.evaluated", phase: "P4", task: "TASK-AW-003", payload: { outcome: "passed", results: [] } })];
+    expect(phase(run(addedPassed), "P4").status).toBe("approved");
+  });
+
   it("ID の無いタスクは P4 のコミットで「合格（ゲート記録なし）」にする", () => {
     const s = run([
       ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
@@ -233,13 +268,13 @@ describe("タスク", () => {
     expect(phase(done, "P4").status).toBe("approved");
   });
 
-  it("逆戻りで開き直した P4 は、前の周に合格したタスクでは完了にならない", () => {
+  it("逆戻りで再承認待ちになった P4 は、前の周に合格したタスクでは再承認されない", () => {
     const s = run([
       ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
       ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版", payload: { artifacts: ["code"] } }),
       ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } }),
     ]);
-    expect(phase(s, "P4").status).toBe("in_progress");
+    expect(phase(s, "P4")).toMatchObject({ status: "approved", needsReapproval: true });
     const done = run([
       ev({ type: "task.dispatched", phase: "P4", iteration: "2026-06 初版" }),
       ev({ type: "commit.created", phase: "P4", iteration: "2026-06 初版", payload: { artifacts: ["code"] } }),
@@ -304,10 +339,11 @@ describe("実データ: approval-workflow", () => {
     expect(s.approvals.at(-1)).toMatchObject({ gate: "customer_approval", valid: false });
   });
 
-  it("AC-005: 設計レビュー後の Phase 逆戻りで、P1 以降が進行中に戻る", () => {
+  it("AC-005: 設計レビュー後の Phase 逆戻りで、P1 を作業中にし、既承認の工程を再承認待ちにする", () => {
     const n = indexOf((e) => e.type === "deviation.opened" && e.payload?.deviation === "phase_rollback");
     const s = replay(realEvents, processDef, n);
-    expect(["P1", "P2", "P3", "P4", "P5", "P6"].every((id) => phase(s, id).status === "in_progress")).toBe(true);
+    expect(phase(s, "P1")).toMatchObject({ status: "in_progress", needsReapproval: true });
+    expect(s.phases.filter((p) => p.id !== "P1" && p.needsReapproval).every((p) => p.status === "approved" && p.reopened)).toBe(true);
   });
 
   it("最後まで再生すると P1〜P6 が承認済みで、TASK-AW-002 は合格", () => {

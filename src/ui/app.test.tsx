@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../app";
 import { processDef, program } from "../data";
-import { controlPointsOf } from "../replay/narrate";
+import { controlPointsOf, stopPointsOf } from "../replay/narrate";
 
 const TOTAL = program.timeline.length;
 const NOTICE = "リプレイ（実際の AI は動作していません）";
@@ -80,10 +80,10 @@ describe("再生操作", () => {
     expect(screen.getByRole("status")).toHaveTextContent(`${TOTAL} / ${TOTAL}`);
   });
 
-  it("スライダーに統制ポイントの印を付ける", () => {
+  it("スライダーに品質検査の停止位置だけ印を付ける", () => {
     renderAt("#/");
     const marks = within(screen.getByRole("group", { name: "再生操作" })).getAllByTestId("control-mark");
-    expect(marks).toHaveLength(controlPointsOf(program, processDef).size);
+    expect(marks).toHaveLength(stopPointsOf(program, processDef).size);
   });
 });
 
