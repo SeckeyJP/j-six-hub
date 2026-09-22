@@ -73,11 +73,14 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
         <p className="replay-notice" role="note">
           {REPLAY_NOTICE}
         </p>
-        <p className="program">
-          {data.program.name} <FictionalBadge />
+        <p className="tagline" data-testid="tagline">
+          AI エージェントの開発を、工程・品質検査・承認で統制する管理画面
         </p>
-        <button type="button" className="guide-button" onClick={guide.start} aria-label="ガイドを開く">
-          ？ ガイド
+        <p className="program">
+          <span data-testid="program-name">{data.program.name}</span> <FictionalBadge />
+        </p>
+        <button type="button" className="guide-button" onClick={guide.start} aria-label="使い方を開く">
+          ？ 使い方
         </button>
       </header>
       <Sidebar data={data} state={state} route={route} help={<HelpTip id="projects" />} />
@@ -106,7 +109,7 @@ export function App({ data, process, guideAutoStart = true }: AppProps) {
           ) : (
             <section aria-labelledby="screen-title">
               <h2 id="screen-title">
-                すべての案件 <HelpTip id="screen" />
+                すべてのプロジェクト <HelpTip id="screen" />
               </h2>
               <Home data={data} state={state} process={process} />
             </section>

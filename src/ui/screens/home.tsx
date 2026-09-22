@@ -21,13 +21,13 @@ export function alertsOf(s: HubState): Alerts {
   };
 }
 
-/** 案件一覧（Program の概観。REQ-013, REQ-015） */
+/** プロジェクト一覧（Program の概観。REQ-013, REQ-015） */
 export function Home({ data, state, process }: { data: ProgramData; state: ProgramState; process: ProcessDefinition }) {
   return (
     <div className="home">
       <p className="lead">
-        Hub は、複数の案件の工程（Phase）・承認・品質ゲート・証跡を横断して管理します。
-        案件をまたいで「どこまで進んだか」「どこで統制が働いたか」を一目で見られます。
+        Hub は、複数のプロジェクトの工程（Phase）・承認・品質検査・監査記録を横断して管理します。
+        プロジェクトをまたいで「どこまで進んだか」「どこで Hub が止めたか」を一目で見られます。
       </p>
       <div className="project-cards">
         {data.projects.map((p) => {
@@ -57,10 +57,10 @@ export function Home({ data, state, process }: { data: ProgramData; state: Progr
                   : `いま：${currentPhase ? `${currentPhase.id} ${currentPhase.name}（${PHASE_STATUS[currentPhase.status]}）` : "—"} ／ 一周：${s.iteration}`}
               </p>
               <ul className="alerts" data-slot="alerts">
-                {a.stopped > 0 && <li>⚑ ゲートで停止 {a.stopped}</li>}
+                {a.stopped > 0 && <li>⚑ 検査で停止 {a.stopped}</li>}
                 {a.invalidApprovals > 0 && <li>⚑ 無効な承認 {a.invalidApprovals}</li>}
-                {a.violations > 0 && <li>⚑ 順序違反 {a.violations}</li>}
-                {a.openDeviations > 0 && <li>⚑ 対応中の逸脱 {a.openDeviations}</li>}
+                {a.violations > 0 && <li>⚑ 工程の順序違反 {a.violations}</li>}
+                {a.openDeviations > 0 && <li>⚑ 対応中の例外処理 {a.openDeviations}</li>}
               </ul>
               <div className="card-foot">
                 <span className="muted">
@@ -73,7 +73,7 @@ export function Home({ data, state, process }: { data: ProgramData; state: Progr
         })}
       </div>
       <p className="muted small">
-        「{data.program.name}」は、3つの案件を束ねた説明用の架空のまとまりです。プロセス定義: {process._source.tag}
+        「{data.program.name}」は、3つのプロジェクトを束ねた説明用の架空のまとまりです。プロセス定義: {process._source.tag}
       </p>
     </div>
   );

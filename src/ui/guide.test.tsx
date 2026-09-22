@@ -43,10 +43,10 @@ describe("ガイドツアー", () => {
     expect(tour()).toBeNull();
   });
 
-  it("上部の「ガイド」ボタンで開き直せる", async () => {
+  it("上部の「使い方」ボタンで開き直せる", async () => {
     renderApp(false);
     expect(tour()).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "ガイドを開く" }));
+    await userEvent.click(screen.getByRole("button", { name: "使い方を開く" }));
     expect(tour()).toHaveTextContent(GUIDE_STEPS[0]!.title);
   });
 

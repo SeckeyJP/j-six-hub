@@ -69,7 +69,8 @@ a { color: var(--accent); }
   padding: 0.55rem 1rem; background: var(--panel); border-bottom: 1px solid var(--line);
 }
 .topbar p { margin: 0; }
-.brand { font-weight: 800; font-size: 1.1rem; }
+.brand { font-weight: 800; font-size: 1.1rem; white-space: nowrap; }
+.tagline { color: var(--muted); font-size: 0.82rem; min-width: 0; }
 .logo { color: var(--accent); }
 .replay-notice {
   padding: 0.2rem 0.7rem; background: var(--notice-bg); border: 1px solid var(--notice-line);

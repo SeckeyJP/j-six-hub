@@ -7,7 +7,7 @@ export function Board({ state, process }: ScreenProps) {
   return (
     <>
       <p className="lead">
-        工程（Phase）は左から右へ進みます。各 Phase の出口にはゲート 🚪 があり、人の承認や機械の検査を通らないと次へ進めません。
+        工程（Phase）は左から右へ進みます。各 Phase の出口には品質検査 🚪 があり、機械の検査と人の承認を通らないと次へ進めません。
       </p>
       <div className="pipeline">
         {state.phases.map((p) => {
@@ -48,21 +48,21 @@ export function Board({ state, process }: ScreenProps) {
       </div>
       <div className="board-notes">
         <section aria-labelledby="violations-title" className="note-card">
-          <h3 id="violations-title">順序違反</h3>
+          <h3 id="violations-title">工程の順序違反</h3>
           {state.violations.length === 0 ? (
             <p className="muted">なし</p>
           ) : (
             <ul>
               {state.violations.map((v) => (
                 <li key={v.eventId} className="warn">
-                  {v.phase} の作業が、{v.missing.join("・")} の承認より前に始まった（{v.eventId}）
+                  {v.missing.join("・")} の承認前に {v.phase} が始まった（{v.eventId}）
                 </li>
               ))}
             </ul>
           )}
         </section>
         <section aria-labelledby="deviations-title" className="note-card">
-          <h3 id="deviations-title">対応中の逸脱</h3>
+          <h3 id="deviations-title">対応中の例外処理</h3>
           {openDeviations.length === 0 ? (
             <p className="muted">なし</p>
           ) : (

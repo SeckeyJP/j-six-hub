@@ -3,7 +3,7 @@ import type { Narration } from "../replay/narrate";
 import type { ProjectData, TimelineItem } from "../types/program";
 import { FictionalBadge, ProvenanceBadge } from "./provenance-badge";
 
-const EMPTY_TEXT = "▶ を押すと再生します（→ キーで1つずつ）。3つの案件の出来事が、起きた順に再生されます。";
+const EMPTY_TEXT = "▶ を押すと再生します（→ キーで1つずつ）。3つのプロジェクトの出来事が、起きた順に再生されます。";
 
 function formatTime(ts: string): string {
   return `${ts.slice(0, 10)} ${ts.slice(11, 16)} UTC`;
