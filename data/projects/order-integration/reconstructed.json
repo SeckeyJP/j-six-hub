@@ -240,6 +240,24 @@
   "basis": "架空のシナリオ。実行記録は無い。"
  },
  {
+  "timestamp": "2026-09-20T04:34:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "ai.agent.finished",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "red-agent"
+  },
+  "summary": "ベンダー B: Red（テスト作成）を終えた",
+  "payload": {
+   "agent": "red-agent",
+   "step": "red"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
   "timestamp": "2026-09-20T04:35:00Z",
   "iteration": "2026-09-20 架空シナリオ",
   "phase": "P4",
@@ -251,6 +269,24 @@
    "name": "green-agent"
   },
   "summary": "ベンダー B: Green（実装）を開始した",
+  "payload": {
+   "agent": "green-agent",
+   "step": "green"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T04:39:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "ai.agent.finished",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "green-agent"
+  },
+  "summary": "ベンダー B: Green（実装）を終えた",
   "payload": {
    "agent": "green-agent",
    "step": "green"
@@ -326,6 +362,24 @@
   "basis": "架空のシナリオ。実行記録は無い。"
  },
  {
+  "timestamp": "2026-09-20T04:54:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "ai.agent.finished",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "red-agent"
+  },
+  "summary": "ベンダー A: Red（テスト作成）を終えた",
+  "payload": {
+   "agent": "red-agent",
+   "step": "red"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
   "timestamp": "2026-09-20T04:55:00Z",
   "iteration": "2026-09-20 架空シナリオ",
   "phase": "P4",
@@ -337,6 +391,24 @@
    "name": "green-agent"
   },
   "summary": "ベンダー A: Green（実装）を開始した",
+  "payload": {
+   "agent": "green-agent",
+   "step": "green"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T05:04:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-001",
+  "type": "ai.agent.finished",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "green-agent"
+  },
+  "summary": "ベンダー A: Green（実装）を終えた",
   "payload": {
    "agent": "green-agent",
    "step": "green"
@@ -436,6 +508,24 @@
   "summary": "中央の実行環境では原因を絞れないため、担当者がローカルの Claude Code で調べることにした（ローカル退避）",
   "payload": {
    "deviation": "local_fallback"
+  },
+  "basis": "架空のシナリオ。実行記録は無い。"
+ },
+ {
+  "timestamp": "2026-09-20T05:45:00Z",
+  "iteration": "2026-09-20 架空シナリオ",
+  "phase": "P4",
+  "task": "TASK-OI-002",
+  "type": "ai.agent.finished",
+  "actor": {
+   "kind": "ai",
+   "role": "ai_agent",
+   "name": "green-agent"
+  },
+  "summary": "ベンダー B: 契約どおりの Green を終えた",
+  "payload": {
+   "agent": "green-agent",
+   "step": "green"
   },
   "basis": "架空のシナリオ。実行記録は無い。"
  },
