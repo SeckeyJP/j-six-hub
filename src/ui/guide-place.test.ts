@@ -17,8 +17,16 @@ describe("吹き出しの向き", () => {
 
   it("上にも下にも入らない場合は、対象に重ならない側（広い方）に出す", () => {
     const vp = { width: 390, height: 500 };
-    expect(resolveSide(rect(20, 460), vp, "right")).toBe("below");
-    expect(resolveSide(rect(0, 300), vp, "right")).toBe("below");
+    expect(resolveSide(rect(250, 200), vp, "right")).toBe("above");
+    expect(resolveSide(rect(0, 200), vp, "right")).toBe("below");
+  });
+
+  it("対象が画面より大きいときは、下端に寄せて対象の上部を見せる", () => {
+    const vp = { width: 390, height: 844 };
+    const tall = rect(100, 700);
+    expect(resolveSide(tall, vp, "left")).toBe("below");
+    const pos = placeBubble(tall, vp, "below");
+    expect(pos.top + pos.height).toBeLessThanOrEqual(vp.height - 8);
   });
 });
 
@@ -34,8 +42,9 @@ describe("吹き出しの位置", () => {
     }
   });
 
-  it("狭い画面では幅を画面に合わせる", () => {
-    expect(placeBubble(rect(100, 100), vp, "below").width).toBe(vp.width - 16);
+  it("幅は画面に収め、広い画面では既定の幅にする", () => {
+    expect(placeBubble(rect(100, 100), vp, "below").width).toBeLessThanOrEqual(vp.width - 16);
+    expect(placeBubble(rect(100, 100), { width: 320, height: 640 }, "below").width).toBe(304);
     expect(placeBubble(rect(100, 100), { width: 1440, height: 900 }, "below").width).toBe(352);
   });
 

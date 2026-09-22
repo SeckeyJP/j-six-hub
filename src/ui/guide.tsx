@@ -16,13 +16,13 @@ export const GUIDE_STEPS: GuideStep[] = [
   {
     id: "projects",
     title: "案件の管理",
-    text: "左は Hub が管理する案件の一覧です。案件ごとに、7つの工程（Phase）の進み具合を小さなバーで、統制が働いた回数を ⚑ で示します。案件を選ぶと、その案件の画面を開けます。",
+    text: "Hub が管理する案件の一覧です。案件ごとに、7つの工程（Phase）の進み具合を小さなバーで、統制が働いた回数を ⚑ で示します。案件を選ぶと、その案件の画面を開けます。",
     side: "right",
   },
   {
     id: "player",
     title: "再生",
-    text: "下のバーで出来事を再生します。▶ で再生、◀ と ▶| で1つずつ戻したり進めたりできます（← → キーも使えます）。スライダーの上の赤い印は、Hub の統制が働いた出来事の位置です。",
+    text: "再生バーで出来事を再生します。▶ で再生、◀ と ▶| で1つずつ戻したり進めたりできます（← → キーも使えます）。スライダーに付いた赤い印は、Hub の統制が働いた出来事の位置です。",
     side: "above",
   },
   {
@@ -34,13 +34,13 @@ export const GUIDE_STEPS: GuideStep[] = [
   {
     id: "screen",
     title: "案件の状態",
-    text: "中央には、選んだ案件の状態を表示します。Phase ボード（工程の進み）・タスク（AI の作業）・ゲート（品質の検査）・承認・証跡を切り替えられます。どれも、再生位置までの出来事から計算した状態です。",
+    text: "選んだ案件の状態を表示します。Phase ボード（工程の進み）・タスク（AI の作業）・ゲート（品質の検査）・承認・証跡を切り替えられます。どれも、再生位置までの出来事から計算した状態です。",
     side: "below",
   },
   {
     id: "timeline",
     title: "出来事の記録",
-    text: "右には、これまでに起きた出来事が新しい順に並びます。行を押すと、いつ・誰が・何を根拠にした出来事かを確かめられます。「統制ポイントだけ」で、統制が働いた出来事に絞れます。",
+    text: "これまでに起きた出来事が、新しい順に並びます。行を押すと、いつ・誰が・何を根拠にした出来事かを確かめられます。「統制ポイントだけ」で、統制が働いた出来事に絞れます。",
     side: "left",
   },
   {
@@ -84,34 +84,65 @@ export function useGuide(autoStart: boolean) {
 
 export type Guide = ReturnType<typeof useGuide>;
 
-function place(target: Element | null, side: Side): { top: number; left: number } {
-  if (!target) return { top: 80, left: 80 };
-  const r = target.getBoundingClientRect();
-  const width = 352;
-  const clampX = (x: number) => Math.max(8, Math.min(x, window.innerWidth - width - 8));
+export interface Viewport {
+  width: number;
+  height: number;
+}
+
+/** 吹き出しのおおよその高さ（内容が2〜4行のとき） */
+const BUBBLE_HEIGHT = 190;
+const NARROW = 760;
+const GAP = 12;
+
+/**
+ * 狭い画面では左右に出す余地が無いため、対象の下（入らなければ上）に出す。
+ * どちらにも入らない場合は、広い側に出して対象への重なりを最小にする。
+ */
+export function resolveSide(rect: DOMRect, vp: Viewport, preferred: Side): Side {
+  if (vp.width >= NARROW) return preferred;
+  // 対象が画面より大きい場合はどこに出しても重なるため、画面下端に寄せて対象の上部を見せる
+  if (rect.height > vp.height * 0.6) return "below";
+  if (rect.bottom + BUBBLE_HEIGHT + GAP <= vp.height) return "below";
+  if (rect.top - BUBBLE_HEIGHT - GAP >= 0) return "above";
+  return vp.height - rect.bottom >= rect.top ? "below" : "above";
+}
+
+export function placeBubble(rect: DOMRect | null, vp: Viewport, side: Side): { top: number; left: number; width: number; height: number } {
+  const width = Math.min(352, vp.width - 16);
+  const height = BUBBLE_HEIGHT;
+  const clampX = (x: number) => Math.max(8, Math.min(x, vp.width - width - 8));
+  const clampY = (y: number) => Math.max(8, Math.min(y, Math.max(8, vp.height - height - 8)));
+  if (!rect) return { top: 80, left: clampX(80), width, height };
   switch (side) {
     case "right":
-      return { top: Math.max(8, r.top + 16), left: clampX(r.right + 14) };
+      return { top: clampY(rect.top + 16), left: clampX(rect.right + GAP), width, height };
     case "left":
-      return { top: Math.max(8, r.top + 16), left: clampX(r.left - width - 14) };
+      return { top: clampY(rect.top + 16), left: clampX(rect.left - width - GAP), width, height };
     case "above":
-      return { top: Math.max(8, r.top - 190), left: clampX(r.left + 16) };
+      return { top: Math.max(8, Math.min(rect.top - height - GAP, vp.height - height - 8)), left: clampX(rect.left + 16), width, height };
     default:
-      return { top: r.bottom + 12, left: clampX(r.left + 16) };
+      // 画面からはみ出す場合は下端に寄せる
+      return { top: clampY(rect.bottom + GAP), left: clampX(rect.left + 16), width, height };
   }
 }
 
 /** ツアー：対象のエリアを強調し、その横に吹き出しを出す */
 export function Tour({ guide }: { guide: Guide }) {
   const current = guide.step === null ? null : GUIDE_STEPS[guide.step]!;
-  const [pos, setPos] = useState({ top: 80, left: 80 });
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; side: Side }>({ top: 80, left: 80, width: 352, side: "below" });
 
   useLayoutEffect(() => {
     if (!current) return;
     const target = document.querySelector(`[data-guide="${current.id}"]`);
     target?.classList.add("tour-target");
     target?.scrollIntoView?.({ block: "nearest" });
-    const update = () => setPos(place(target, current.side));
+    const update = () => {
+      const vp = { width: window.innerWidth, height: window.innerHeight };
+      const rect = target?.getBoundingClientRect() ?? null;
+      const side = rect ? resolveSide(rect, vp, current.side) : current.side;
+      const box = placeBubble(rect, vp, side);
+      setPos({ top: box.top, left: box.left, width: box.width, side });
+    };
     update();
     window.addEventListener("resize", update);
     return () => {
@@ -134,7 +165,7 @@ export function Tour({ guide }: { guide: Guide }) {
   return (
     <>
       <div className="tour-backdrop" onClick={guide.close} />
-      <div role="dialog" aria-label="ガイド" className="bubble tour" data-side={current.side} style={{ position: "fixed", top: pos.top, left: pos.left }}>
+      <div role="dialog" aria-label="ガイド" className="bubble tour" data-side={pos.side} style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width }}>
         <h3>{current.title}</h3>
         <p>{current.text}</p>
         <div className="bubble-actions">

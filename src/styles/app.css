@@ -239,8 +239,25 @@ tr.warn td { color: var(--danger); }
 @media (max-width: 720px) {
   .shell { display: block; height: auto; }
   .sidebar, .timeline { border: none; }
+  /* 狭い画面では案件ナビを横に並べ、本文をすぐ読めるようにする */
+  .sidebar { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--line); padding: 0.4rem 0.6rem; }
+  .sidebar h2 { display: none; }
+  .sidebar nav { display: flex; align-items: center; gap: 0.4rem; overflow-x: auto; }
+  .sidebar ul { display: flex; gap: 0.4rem; margin: 0; }
+  .sidebar li a, .nav-home, .screen-nav a { white-space: nowrap; padding: 0.3rem 0.6rem; margin: 0; border: 1px solid var(--line); border-radius: 999px; font-size: 0.82rem; }
+  .sidebar .mini-phases, .sidebar .badge-slot { display: none; }
+  /* 注意が無いときも幅を確保し、項目の高さを変えない（REQ-022） */
+  .alert-count { display: inline; margin-left: 0.3rem; }
+  .project-name { display: inline-flex; }
+  .screen-nav { border-top: none; padding-top: 0.3rem; }
+  .player-info .time { font-size: 0.72rem; }
   .playerbar { position: sticky; bottom: 0; }
-  .player { grid-template-columns: 1fr; }
+  /* 狭い画面では再生バーを2段に詰める（操作＋位置／スライダーと速度） */
+  .player { grid-template-columns: auto 1fr; grid-template-areas: "buttons info" "track speed"; gap: 0.3rem 0.6rem; padding: 0.4rem 0.7rem; }
+  .player-buttons { grid-area: buttons; }
+  .player-info { grid-area: info; flex-direction: row; align-items: baseline; gap: 0.5rem; justify-content: flex-end; height: 1.3rem; overflow: hidden; }
+  .player-track { grid-area: track; padding-top: 0.5rem; }
+  .speed { grid-area: speed; justify-self: end; }
   .pipeline { grid-template-columns: repeat(7, 9rem); overflow-x: auto; }
   .board-notes { grid-template-columns: 1fr; }
 }
@@ -249,7 +266,7 @@ tr.warn td { color: var(--danger); }
 .help-bubble strong { display: block; margin-bottom: 0.2rem; }
 .help-text { display: block; }
 .guide-button { font: inherit; font-size: 0.82rem; padding: 0.25rem 0.7rem; border-radius: 999px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
-.tour { width: 22rem; }
+.tour { max-width: calc(100vw - 1rem); }
 .player .help { vertical-align: 0; }
 .player button.help { min-width: 1.15rem; height: 1.15rem; border-radius: 50%; border: 1px solid var(--muted); background: transparent; color: var(--muted); }
 .timeline .help-bubble { left: auto; right: -0.5rem; }
