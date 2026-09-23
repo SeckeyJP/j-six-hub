@@ -22,7 +22,7 @@ describe("履歴（絞り込みと行）", () => {
     show("monthly-billing");
     const group = screen.getByRole("group", { name: "絞り込み" });
     expect(within(group).getByRole("button", { name: `すべて ${END}` })).toHaveAttribute("aria-pressed", "true");
-    await userEvent.click(within(group).getByRole("button", { name: `⚑ Hub の統制記録 ${points.size}` }));
+    await userEvent.click(within(group).getByRole("button", { name: `⚑ 統制に関わる記録 ${points.size}` }));
     expect(rows()).toHaveLength(points.size);
     const mb = program.projects.find((p) => p.id === "monthly-billing")!;
     await userEvent.click(within(group).getByRole("button", { name: `このプロジェクト ${mb.events.length}` }));

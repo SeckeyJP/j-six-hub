@@ -8,6 +8,7 @@ export function Approvals({ state, process }: ScreenProps) {
   const roleName = (id: string | null) => (id ? (process.roles.find((r) => r.id === id)?.name ?? id) : "役割未記録");
   return (
     <table aria-label="承認の記録">
+      <caption>主体・役割には抽出時の補足情報、承認時刻には再構成が含まれます。有効・無効は再生モデル上の判定であり、本人の認証済み操作を証明しません。</caption>
       <thead>
         <tr>
           <th>イベント</th>

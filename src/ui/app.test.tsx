@@ -94,7 +94,7 @@ describe("いま起きたこと", () => {
     const index = program.timeline.findIndex((t) => t.key === key) + 1;
     for (let i = 0; i < index; i += 1) await userEvent.keyboard("{ArrowRight}");
     const now = screen.getByRole("region", { name: "いま起きたこと" });
-    expect(now).toHaveTextContent("Hub の判断");
+    expect(now).toHaveTextContent("解釈・構想");
   });
 
   it("再生前は操作の案内を出す", () => {

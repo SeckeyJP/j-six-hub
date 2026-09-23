@@ -72,3 +72,18 @@ describe("ガイドの文", () => {
     expect(projects.text).not.toContain("⚑ で示します");
   });
 });
+
+
+describe("根拠の限界を画面単体で読める", () => {
+  it("工程ボードにも再構成した承認時刻の注意を残す", () => {
+    renderAt("#/p/approval-workflow/board?n=176");
+    expect(screen.getByText(/再生モデル上の判定です。承認時刻/)).toBeInTheDocument();
+  });
+  it("承認一覧を認証済みの操作記録として示さない", () => {
+    renderAt("#/p/approval-workflow/approvals?n=176");
+    expect(screen.getByRole("table", { name: "承認の記録" })).toHaveTextContent(/主体・役割.*補足情報/);
+  });
+  it("ガイドが当時の Hub の停止実績を主張しない", () => {
+    expect(GUIDE_STEPS.map((s) => s.text).join(" ")).not.toMatch(/Hub が工程のルールに沿って作業を止めた/);
+  });
+});

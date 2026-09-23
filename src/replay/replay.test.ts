@@ -177,7 +177,7 @@ describe("逸脱", () => {
     expect(run(list).violations.at(-1)).toMatchObject({ phase: "P3", missing: ["P1", "P2"] });
   });
 
-  it("逸脱を開き、同じ種類で最後に開いたものを閉じる", () => {
+  it("開始参照のない終了は、候補が複数なら閉じない", () => {
     const list = [
       ev({ type: "deviation.opened", payload: { deviation: "escalation" } }),
       ev({ type: "deviation.opened", payload: { deviation: "escalation" } }),
@@ -186,7 +186,7 @@ describe("逸脱", () => {
     const s = run(list);
     expect(s.deviations.map((d) => [d.openedBy, d.closedBy])).toEqual([
       [list[0]!.id, null],
-      [list[1]!.id, list[2]!.id],
+      [list[1]!.id, null],
     ]);
   });
 
@@ -424,4 +424,61 @@ describe("Property", () => {
       { numRuns: 100 },
     );
   });
+});
+
+
+describe("逸脱の対応付け（R03）", () => {
+  const open = (task: string, iteration = "it", kind = "escalation") => ev({ type: "deviation.opened", task, iteration, payload: { deviation: kind } });
+  const close = (task: string, openedBy?: string, iteration = "it", kind = "escalation") => ev({ type: "deviation.closed", task, iteration, payload: { deviation: kind, ...(openedBy ? { opened_by: openedBy } : {}) } });
+  const dispatch = (task: string, iteration = "it") => ev({ type: "task.dispatched", task, iteration });
+
+  it("別タスクの同種例外を閉じず、該当タスクだけ再開する", () => {
+    const a = open("TASK-XX-001"), b = open("TASK-XX-002");
+    const end = close("TASK-XX-001");
+    const s = run([dispatch(a.task!), dispatch(b.task!), a, b, end]);
+    expect(s.deviations.map((d) => d.closedBy)).toEqual([end.id, null]);
+    expect(s.tasks.map((t) => t.status)).toEqual(["running", "escalated"]);
+  });
+
+  it("同タスクの重複例外は開始IDで区別し、二重終了で他の例外を閉じない", () => {
+    const a = open("TASK-XX-001"), b = open(a.task!);
+    const end = close(a.task!, a.id);
+    const s = run([dispatch(a.task!), a, b, end, close(a.task!, a.id)]);
+    expect(s.deviations.map((d) => d.closedBy)).toEqual([end.id, null]);
+    expect(s.tasks[0]!.status).toBe("escalated");
+  });
+
+  it.each(["別タスク", "別周", "存在しない参照"])("%s の終了は状態を変更しない", (mode) => {
+    const a = open("TASK-XX-001");
+    const end = close(mode === "別タスク" ? "TASK-XX-002" : a.task!, mode === "存在しない参照" ? "ev-9999" : a.id, mode === "別周" ? "other" : "it");
+    const s = run([dispatch(a.task!), a, end]);
+    expect(s.deviations[0]!.closedBy).toBeNull();
+    expect(s.tasks[0]!.status).toBe("escalated");
+  });
+
+  it("同一IDの別周を区別する", () => {
+    const a = open("TASK-XX-001"), b = open(a.task!, "next");
+    const end = close(a.task!, b.id, "next");
+    const s = run([dispatch(a.task!), a, dispatch(a.task!, "next"), b, end]);
+    expect(s.deviations.map((d) => d.closedBy)).toEqual([null, end.id]);
+    expect(s.tasks.map((t) => t.status)).toEqual(["escalated", "running"]);
+  });
+
+  it("ローカル退避を閉じても他の未解消例外があれば判断待ちに戻す", () => {
+    const a = open("TASK-XX-001"), b = open(a.task!, "it", "local_fallback");
+    const s = run([dispatch(a.task!), a, b, close(a.task!, b.id, "it", "local_fallback")]);
+    expect(s.tasks[0]!.status).toBe("escalated");
+  });
+});
+
+
+it("以前の実行の例外終了を、同一周の再投入タスクへ適用しない", () => {
+  const first = ev({ type: "task.dispatched", task: "TASK-XX-001" });
+  const a = ev({ type: "deviation.opened", task: first.task, payload: { deviation: "escalation" } });
+  const second = ev({ type: "task.dispatched", task: first.task });
+  const b = ev({ type: "deviation.opened", task: first.task, payload: { deviation: "escalation" } });
+  const end = ev({ type: "deviation.closed", task: first.task, payload: { deviation: "escalation", opened_by: a.id } });
+  const s = run([first, a, second, b, end]);
+  expect(s.tasks.map((t) => t.status)).toEqual(["running", "escalated"]);
+  expect(s.deviations.map((d) => d.closedBy)).toEqual([end.id, null]);
 });

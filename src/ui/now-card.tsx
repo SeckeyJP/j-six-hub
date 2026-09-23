@@ -49,7 +49,7 @@ export function NowCard({
   return (
     <section aria-label="いま起きたこと" className={`now ${control ? "now-control" : ""}`} data-guide="now">
       <p className={`now-band ${control ? "band-control" : ""}`} data-testid="now-band">
-        <span className="band-title">{stopped ? "⚑ Hub が止めた場面" : control ? "⚑ Hub の統制を記録した場面" : "通常の出来事"}</span>
+        <span className="band-title">{stopped ? (item?.event.provenance === "measured" ? "⚑ 元記録の検査停止・未達" : "⚑ 再構成した検査停止・未達") : control ? "⚑ 再生モデル上の判定" : "通常の出来事"}</span>
         <span className="band-pos">
           {/* 狭い画面では見出しの語を隠し、位置だけを残す */}
           <span className="band-label">いま起きたこと ・ </span>
@@ -86,7 +86,7 @@ export function NowCard({
           {detail}
         </p>
         <p className={`now-hub ${control ? "" : "is-empty"}`} data-slot="hub" data-testid="now-judge" title={control ?? ""}>
-          <strong className="judge-label">Hub の判断</strong>
+          <strong className="judge-label">解釈・構想</strong>
           <span className="judge-text clamp">{control}</span>
           {nextControl !== null && (
             <button type="button" className="judge-next" onClick={() => onSeek(nextControl)}>

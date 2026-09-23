@@ -17,7 +17,7 @@ const card = (container: HTMLElement, phase: string) =>
   [...container.querySelectorAll(".phase-card")].find((c) => c.querySelector(".phase-id")?.textContent === phase) as HTMLElement;
 
 describe("工程ボードのカードに統制を出す", () => {
-  it("その工程で Hub が止めた件数を出す", () => {
+  it("その工程の検査停止・未達の件数を出す", () => {
     const { container } = renderAt("#/p/monthly-billing/board?n=176");
     const p4 = card(container, "P4");
     expect(within(p4).getByTestId("mark-stopped")).toHaveTextContent(/検査で停止 \d+/);
@@ -67,6 +67,6 @@ describe("いま起きたことの meta", () => {
   it("実行者を出す", () => {
     renderAt("#/p/approval-workflow/board?n=46");
     const meta = screen.getByRole("region", { name: "いま起きたこと" }).querySelector('[data-slot="meta"]')!;
-    expect(meta.querySelector('[data-testid="meta-actor"]')!.textContent).toMatch(/人間|AI|Hub/);
+    expect(meta.querySelector('[data-testid="meta-actor"]')!.textContent).toMatch(/人間|AI|システム/);
   });
 });

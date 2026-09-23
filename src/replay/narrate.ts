@@ -1,4 +1,4 @@
-// 「いま起きたこと」と「Hub が何を統制したか」を平易な文にする（design-spec §6.3）。
+// 「いま起きたこと」と「再生上の解釈・Hub 構想」を平易な文にする（design-spec §6.3）。
 // Phase・ゲート・役割・逸脱の名前はプロセス定義から引く。
 import type { GateResult, HubEvent } from "../types/events";
 import type { ProgramData } from "../types/program";
@@ -11,7 +11,7 @@ export type ControlKind = "gate_stopped" | "invalid_approval" | "deviation" | "v
 export interface Narration {
   headline: string;
   detail: string[];
-  /** Hub が統制したこと（統制ポイントでなければ null） */
+  /** 再生モデル上の解釈または構想の説明（統制ポイントでなければ null） */
   control: string | null;
   kinds: ControlKind[];
 }
@@ -44,7 +44,7 @@ export function controlPointsOf(data: ProgramData, process: ProcessDefinition): 
   return points;
 }
 
-/** 全案件のうち、ゲートまたは Hook が実際に作業を停止した位置だけを返す。 */
+/** 全案件のうち、ゲートの停止・未達または Hook の停止記録の位置だけを返す。 */
 export function stopPointsOf(data: ProgramData, process: ProcessDefinition): Map<string, ControlKind[]> {
   return new Map([...controlPointsOf(data, process)].filter(([, kinds]) => kinds.includes("gate_stopped")));
 }
@@ -83,7 +83,7 @@ const STEP_TEXT: Record<string, string> = {
 const DEVIATION_TEXT: Record<string, { headline: (ev: HubEvent) => string; control: string }> = {
   phase_rollback: {
     headline: (ev) => `工程を ${String(ev.payload?.to_phase ?? "")} に戻した（Phase 逆戻り）`,
-    control: "Hub は戻した工程以降を「進行中」に戻す。先へ進むには、もう一度それぞれの承認を通す必要がある",
+    control: "戻り先を作業中にし、既承認の工程には再承認待ちを付ける。以前の承認記録を残し、先へ進むには再承認を必要とする",
   },
   escalation: {
     headline: () => "AI の作業が進まないため、人に判断を求めた（エスカレーション）",
@@ -102,13 +102,13 @@ const DEVIATION_TEXT: Record<string, { headline: (ev: HubEvent) => string; contr
 export function narrate(ev: HubEvent, before: HubState, after: HubState, process: ProcessDefinition): Narration {
   const kinds = controlKinds(ev, before, after);
   const base = describe(ev, after, process);
-  const controls = [base.control];
+  const controls = [base.control ? `構想：${base.control}` : null];
   if (kinds.includes("violation")) {
     const v = after.violations.at(-1)!;
-    controls.push(`順序違反：${v.missing.join("・")} の承認より前に ${v.phase} の作業が始まった。Hub では承認が済むまで先の工程に進めない`);
+    controls.push(`再生モデル上の順序違反：${v.missing.join("・")} の承認より前に ${v.phase} の作業が始まった。承認時刻には再構成が含まれ、記録不足から実際の無承認とは断定できない`);
   }
   const control = controls.filter(Boolean).join(" ／ ") || null;
-  return { headline: base.headline, detail: base.detail, control, kinds };
+  return { headline: `${ev.provenance === "reconstructed" ? "再構成：" : ""}${base.headline}`, detail: base.detail, control, kinds };
 }
 
 function roleName(process: ProcessDefinition, id: string | undefined): string | null {
@@ -118,7 +118,7 @@ function roleName(process: ProcessDefinition, id: string | undefined): string | 
 function actorLabel(ev: HubEvent, process: ProcessDefinition): string {
   if (ev.actor.name) return ev.actor.name;
   if (ev.actor.kind === "ai") return "AI";
-  if (ev.actor.kind === "system") return "Hub";
+  if (ev.actor.kind === "system") return "システム";
   return roleName(process, ev.actor.role) ?? "担当者";
 }
 
@@ -155,7 +155,7 @@ function describe(ev: HubEvent, after: HubState, process: ProcessDefinition): { 
     case "hook.blocked":
       return {
         headline: `作業終了時のチェック（Hook）が AI を止めた${Number(p.count) > 1 ? `（${String(p.count)} 回）` : ""}`,
-        detail: ["当時の Plugin の不具合で、同じ理由のブロックが繰り返された"],
+        detail: ["同じ理由のブロックが繰り返された記録。回数は当時の Plugin の不具合の影響を受けている"],
         control: "同じ理由で止まり続けると、Hub は人に知らせる（エスカレーション）",
       };
     case "requirements.updated": {
@@ -186,7 +186,8 @@ function describe(ev: HubEvent, after: HubState, process: ProcessDefinition): { 
     }
     case "deviation.closed": {
       const name = process.deviations.find((x) => x.id === p.deviation)?.name ?? String(p.deviation);
-      return { headline: `${name}を解消した`, detail: [ev.summary], control: null };
+      const matched = after.deviations.some((d) => d.closedBy === ev.id);
+      return { headline: matched ? `${name}を解消した` : `${name}の終了記録：対応先を確認できない`, detail: [matched ? ev.summary : "開始の参照・タスク・周が一致する一意な候補がないため、再生上の状態は変更しない"], control: null };
     }
     default:
       return { headline: ev.summary, detail: [], control: null };
@@ -201,7 +202,7 @@ function describeGate(ev: HubEvent) {
   }
   const count = Number(p.count) > 1 ? `（同じ理由で ${String(p.count)} 回）` : "";
   return {
-    headline: `品質ゲートが作業を止めた${count}`,
+    headline: `${p.outcome === "blocked" ? "品質ゲートの停止を記録した" : "品質ゲートの未達を記録した"}${count}`,
     detail: failed.map((r) => `${r.layer} ${r.check ?? ""}：${r.summary}`),
     control: "Hub は工程のルールに合わない成果物を、人が見る前に機械的に止める。直すまで先へ進めない",
   };
@@ -211,8 +212,8 @@ function describeApproval(ev: HubEvent, after: HubState, process: ProcessDefinit
   const a = after.approvals.at(-1)!;
   if (!a.valid) {
     return {
-      headline: ev.actor.kind === "ai" ? `AI が「${a.gateName}」の承認欄に承認を書き込んだ` : `「${a.gateName}」の承認が無効だった`,
-      detail: [a.reason ?? ""],
+      headline: ev.actor.kind === "ai" ? `「${a.gateName}」の承認欄を AI による記入として再生した` : `「${a.gateName}」の承認が無効だった`,
+      detail: [a.reason ?? "", "承認の主体属性は抽出時の補足情報。認証された本人の操作を証明する記録ではない"],
       control: "承認できるのは人間の役割だけ（プロセス定義）。Hub はこれを承認として扱わず、工程は先へ進まない",
     };
   }

@@ -75,7 +75,8 @@ describe("narrate（いま起きたこと）", () => {
   it("AC-009: G1 スコープ検査での停止を説明し、Hub の統制を述べる", () => {
     const { ev, before, after } = at("monthly-billing", (e) => e.type === "gate.evaluated" && JSON.stringify(e.payload).includes("scope"));
     const n = narrate(ev, before, after, processDef);
-    expect(n.headline).toMatch(/品質ゲート.*止め/);
+    expect(n.headline).toMatch(/品質ゲート.*未達/);
+    expect(n.control).toMatch(/^構想：/);
     expect(n.detail.join("")).toMatch(/許可範囲外/);
     expect(n.control).toMatch(/Hub/);
   });
@@ -111,12 +112,30 @@ describe("narrate（いま起きたこと）", () => {
   it("順序違反が起きたら、Hub の指摘として述べる", () => {
     const { ev, before, after } = at("approval-workflow", (e) => e.type === "ai.session.started" && e.payload?.skill === "doc-reverse-gen");
     const n = narrate(ev, before, after, processDef);
-    expect(n.control).toMatch(/順序違反/);
+    expect(n.control).toMatch(/再生モデル上の順序違反/);
+    expect(n.control).toMatch(/実際の無承認.*断定できない/);
   });
 
   it("タスクの割り当てでは担当のチームを述べる", () => {
     const { ev, before, after } = at("order-integration", (e) => e.type === "task.dispatched");
     const n = narrate(ev, before, after, processDef);
     expect(n.headline).toMatch(/ベンダー/);
+  });
+});
+
+
+describe("説明の根拠（R01）", () => {
+  it("再構成承認を実測の操作として説明しない", () => {
+    const { ev, before, after } = at("approval-workflow", (e) => e.type === "gate.approved" && e.provenance === "reconstructed");
+    expect(narrate(ev, before, after, processDef).headline).toMatch(/^再構成：/);
+  });
+  it("AI 承認の主体属性が補足情報であることを表示する", () => {
+    const { ev, before, after } = at("approval-workflow", (e) => e.type === "gate.approved" && e.actor.kind === "ai");
+    expect(narrate(ev, before, after, processDef).detail.join(" ")).toMatch(/主体.*補足情報/);
+  });
+  it("対応しない終了を解消済みと説明しない", () => {
+    const { ev, before } = at("order-integration", (e) => e.type === "deviation.closed");
+    const invalid = { ...ev, payload: { ...ev.payload, opened_by: "ev-9999" } };
+    expect(narrate(invalid, before, before, processDef).headline).toMatch(/対応先を確認できない/);
   });
 });
