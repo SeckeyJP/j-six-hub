@@ -238,8 +238,8 @@ tr.warn td { color: var(--danger); }
 .legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.7rem; font-size: 0.74rem; color: var(--muted); background: var(--bg); border-radius: 8px; padding: 0.45rem 0.55rem; margin-bottom: 0.5rem; }
 .filters { display: flex; gap: 0.3rem; flex-wrap: wrap; font-size: 0.82rem; margin-bottom: 0.4rem; }
 .events { list-style: none; padding: 0; margin: 0; }
-.events li { border-bottom: 1px solid var(--line); }
-.events li.control { background: var(--control-bg); border-left: 3px solid var(--danger); border-radius: 0 8px 8px 0; }
+.events > li { border-bottom: 1px solid var(--line); }
+.events > li.control { background: var(--control-bg); border-left: 3px solid var(--danger); border-radius: 0 8px 8px 0; }
 .event-row { all: unset; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 0.4rem; padding: 0.45rem 0.4rem; width: 100%; box-sizing: border-box; font-size: 0.8rem; }
 .event-row:focus-visible { outline: 2px solid var(--accent); }
 .event-time { color: var(--muted); font-variant-numeric: tabular-nums; }
