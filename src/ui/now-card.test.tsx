@@ -32,15 +32,15 @@ function show(pred: (k: string) => boolean, onSeek = vi.fn()) {
 const band = () => screen.getByTestId("now-band");
 
 describe("いま起きたこと（ヘッダ帯）", () => {
-  it("統制の場面では赤帯に「Hub が止めた場面」を出す", () => {
+  it("実測の停止では赤帯に元記録の検査停止・未達を出す", () => {
     show((key) => points.get(key)?.includes("gate_stopped") ?? false);
-    expect(band()).toHaveTextContent("Hub が止めた場面");
+    expect(band()).toHaveTextContent("元記録の検査停止・未達");
     expect(band().className).toContain("band-control");
   });
 
   it("停止ではない統制記録を、Hub が止めた場面とは表示しない", () => {
     show((key) => points.get(key)?.includes("invalid_approval") ?? false);
-    expect(band()).toHaveTextContent("Hub の統制を記録した場面");
+    expect(band()).toHaveTextContent("再生モデル上の判定");
     expect(band()).not.toHaveTextContent("Hub が止めた場面");
   });
 
@@ -56,10 +56,10 @@ describe("いま起きたこと（ヘッダ帯）", () => {
     expect(band()).toHaveTextContent(/\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
   });
 
-  it("統制の場面では「Hub の判断」と、次の停止へ移動する導線を出す", async () => {
+  it("統制の場面では「解釈・構想」と、次の停止へ移動する導線を出す", async () => {
     const { onSeek } = show((key) => points.get(key)?.includes("gate_stopped") ?? false);
     const judge = screen.getByTestId("now-judge");
-    expect(judge).toHaveTextContent("Hub の判断");
+    expect(judge).toHaveTextContent("解釈・構想");
     await userEvent.click(within(judge).getByRole("button", { name: /次の停止/ }));
     expect(onSeek).toHaveBeenCalledWith(expect.any(Number));
   });

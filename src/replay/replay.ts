@@ -86,9 +86,6 @@ function apply(ctx: Ctx, ev: HubEvent): void {
       break;
     case "deviation.closed":
       closeDeviation(state, ev);
-      updateTask(state, ev, (t) => {
-        if (t.status === "escalated" || t.status === "local_fallback") t.status = "running";
-      });
       break;
     case "task.dispatched":
       state.tasks.push(newTask(ev));
@@ -206,7 +203,7 @@ function applyApproval(ctx: Ctx, ev: HubEvent): void {
 function openDeviation(ctx: Ctx, ev: HubEvent): void {
   const kind = str(ev.payload?.deviation) ?? "unknown";
   const name = ctx.process.deviations.find((d) => d.id === kind)?.name ?? kind;
-  ctx.state.deviations.push({ kind, name, openedBy: ev.id, closedBy: null, phase: ev.phase ?? null });
+  ctx.state.deviations.push({ taskDispatchedAt: taskForEvent(ctx.state, ev)?.dispatchedAt ?? null, kind, name, openedBy: ev.id, closedBy: null, phase: ev.phase ?? null, task: ev.task ?? null, iteration: ev.iteration ?? "" });
   if (kind !== "phase_rollback") return;
   const to = str(ev.payload?.to_phase);
   const from = ctx.state.phases.findIndex((p) => p.id === to);
@@ -224,8 +221,22 @@ function openDeviation(ctx: Ctx, ev: HubEvent): void {
 
 function closeDeviation(state: HubState, ev: HubEvent): void {
   const kind = str(ev.payload?.deviation);
-  const open = [...state.deviations].reverse().find((d) => d.kind === kind && d.closedBy === null);
-  if (open) open.closedBy = ev.id;
+  const reference = ev.payload?.opened_by;
+  const currentRun = taskForEvent(state, ev)?.dispatchedAt ?? null;
+  const candidates = state.deviations.filter((d) =>
+    d.kind === kind && d.closedBy === null && d.task === (ev.task ?? null)
+    && d.iteration === (ev.iteration ?? "")
+    && (reference === undefined ? d.taskDispatchedAt === currentRun : d.openedBy === reference));
+  // 古い記録でも一意に特定できる場合だけ対応付ける。誤った参照から別の開始へは逃がさない。
+  if (candidates.length !== 1) return;
+  const open = candidates[0]!;
+  open.closedBy = ev.id;
+  const t = state.tasks.find((t) => t.dispatchedAt === open.taskDispatchedAt);
+  if (!t || (t.status !== "escalated" && t.status !== "local_fallback")) return;
+  const remaining = state.deviations.filter((d) => d.closedBy === null && d.taskDispatchedAt === t.dispatchedAt);
+  if (remaining.some((d) => d.kind === "local_fallback")) t.status = "local_fallback";
+  else if (remaining.some((d) => d.kind === "escalation" || d.kind === "interface_contract_violation")) t.status = "escalated";
+  else t.status = "running";
 }
 
 // --- タスク -------------------------------------------------------------------
@@ -246,9 +257,13 @@ function newTask(ev: HubEvent): TaskView {
 }
 
 function updateTask(state: HubState, ev: HubEvent, fn: (t: TaskView) => void): void {
-  if (!ev.task) return;
-  const t = state.tasks.find((x) => x.id === ev.task);
+  const t = taskForEvent(state, ev);
   if (t) fn(t);
+}
+
+function taskForEvent(state: HubState, ev: HubEvent): TaskView | undefined {
+  if (!ev.task) return undefined;
+  return [...state.tasks].reverse().find((x) => x.id === ev.task && x.iteration === (ev.iteration ?? ""));
 }
 
 function startAgent(t: TaskView, ev: HubEvent): void {

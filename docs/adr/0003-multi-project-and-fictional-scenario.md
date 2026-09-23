@@ -20,7 +20,7 @@ J-SIX にはもう1つ実行記録のあるサンプルがある。
   - 2026-09-21 の TASK-MB-007（振込先口座の印字）：PR #18
     - タスク定義（`docs/tasks/TASK-MB-007.md`）と、hold-out・Red・Green のコミットがある
     - G3 の指摘を受けた修正が5回あり、CI で整形漏れが見つかった
-    - `reports/gate-history.jsonl` に、G1 スコープ検査による停止（AI が許可範囲外の hold-out テストを変更）と、G3 の再判定要求が時刻付きで残っている
+    - `reports/gate-history.jsonl` に、G1 スコープ検査による未達（許可範囲外の hold-out テストへの変更を検出。主体はこの記録だけでは確定しない）と、G3 の再判定要求が時刻付きで残っている
 
 ## 判断（Decision）
 

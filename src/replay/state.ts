@@ -72,6 +72,10 @@ export interface ApprovalView {
 }
 
 export interface DeviationView {
+  /** 開始時に対応付けたタスク実行。投入イベントの seq */
+  taskDispatchedAt: number | null;
+  task: string | null;
+  iteration: string;
   kind: string;
   name: string;
   openedBy: string;

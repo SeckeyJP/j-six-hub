@@ -25,7 +25,7 @@ function currentLine(p: { events: unknown[] }, s: HubState, measured: number): s
   return `${where} ・ 実測 ${measured}/${p.events.length}`;
 }
 
-/** 左のプロジェクトナビ。工程の進み具合と、Hub が止めた回数を添える */
+/** 左のプロジェクトナビ。工程の進み具合と、検査停止・未達の回数を添える */
 export function Sidebar({ data, state, route, help }: { data: ProgramData; state: ProgramState; route: Route; help?: ReactNode }) {
   const selected = route.kind === "project" ? route.id : null;
   const selectedState = selected ? state.projects[selected] : undefined;

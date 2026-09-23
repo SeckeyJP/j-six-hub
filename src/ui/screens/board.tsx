@@ -79,6 +79,7 @@ export function Board({ state, process, onOpenEvent }: ScreenProps) {
       <div className="board-notes">
         <section aria-labelledby="violations-title" className="note-card">
           <h3 id="violations-title">工程の順序違反</h3>
+          <p className="muted">再生モデル上の判定です。承認時刻には再構成が含まれ、実際の無承認とは断定できません。</p>
           {state.violations.length === 0 ? (
             <p className="muted">なし</p>
           ) : (
