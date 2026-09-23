@@ -3,7 +3,7 @@ import { PHASE_STATUS } from "../labels";
 import type { HubState } from "../../replay/state";
 import type { PhaseId } from "../../types/process";
 
-/** その工程で Hub が止めた件数・順序違反の件数（REQ-010） */
+/** その工程で記録された検査の停止・未達と、再生モデルの順序違反の件数（REQ-010） */
 function marksOf(state: HubState, phase: PhaseId) {
   return {
     stopped: state.evaluations.filter((e) => e.phase === phase && (e.outcome === "blocked" || e.outcome === "failed")).length,
@@ -43,7 +43,7 @@ export function Board({ state, process, onOpenEvent }: ScreenProps) {
                 <span className={`phase-mark here ${here === p.id ? "" : "is-empty"}`} data-testid="mark-here">
                   ● いまここ
                 </span>
-                <span className={`phase-mark stop ${marks.stopped > 0 ? "" : "is-empty"}`} data-testid="mark-stopped" title={`この工程で Hub が作業を止めた回数: ${marks.stopped}`}>
+                <span className={`phase-mark stop ${marks.stopped > 0 ? "" : "is-empty"}`} data-testid="mark-stopped" title={`この工程で記録された検査の停止・未達の件数: ${marks.stopped}`}>
                   ⚑ 検査で停止 {marks.stopped}
                 </span>
                 <span className={`phase-mark violation ${marks.violations > 0 ? "" : "is-empty"}`} data-testid="mark-violation" title={`前の工程の承認前に始まった回数: ${marks.violations}`}>
