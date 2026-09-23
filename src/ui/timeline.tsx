@@ -3,6 +3,7 @@ import type { ControlKind } from "../replay/narrate";
 import type { HubEvent } from "../types/events";
 import type { ProgramData } from "../types/program";
 import type { ProcessDefinition } from "../types/process";
+import { ArtifactLinks } from "./artifact-links";
 import { ACTOR_ICON, ACTOR_KIND } from "./labels";
 import { FictionalBadge, ProvenanceBadge } from "./provenance-badge";
 
@@ -130,22 +131,25 @@ export function Timeline({
                 )}
               </button>
               {expanded && (
-                <dl className="event-detail">
-                  <dt>時刻</dt>
-                  <dd>{e.timestamp.replace("T", " ").replace("Z", " UTC")}</dd>
-                  <dt>工程 / 作業</dt>
-                  <dd>{e.phase ?? "—"} / {e.task ?? "—"}</dd>
-                  <dt>実行者</dt>
-                  <dd>{[ACTOR_KIND[e.actor.kind], roleName(e.actor.role), e.actor.name].filter(Boolean).join(" / ")}</dd>
-                  <dt>出典</dt>
-                  <dd>{SOURCE[e.source.kind]}{e.source.ref ? `（${e.source.ref}）` : ""}</dd>
-                  {e.basis && (
-                    <>
-                      <dt>再構成の根拠</dt>
-                      <dd className="basis">{e.basis}</dd>
-                    </>
-                  )}
-                </dl>
+                <div className="event-detail">
+                  <dl>
+                    <dt>時刻</dt>
+                    <dd>{e.timestamp.replace("T", " ").replace("Z", " UTC")}</dd>
+                    <dt>工程 / 作業</dt>
+                    <dd>{e.phase ?? "—"} / {e.task ?? "—"}</dd>
+                    <dt>実行者</dt>
+                    <dd>{[ACTOR_KIND[e.actor.kind], roleName(e.actor.role), e.actor.name].filter(Boolean).join(" / ")}</dd>
+                    <dt>出典</dt>
+                    <dd>{SOURCE[e.source.kind]}{e.source.ref ? `（${e.source.ref}）` : ""}</dd>
+                    {e.basis && (
+                      <>
+                        <dt>再構成の根拠</dt>
+                        <dd className="basis">{e.basis}</dd>
+                      </>
+                    )}
+                  </dl>
+                <ArtifactLinks project={p} event={e} />
+                </div>
               )}
             </li>
           );

@@ -248,6 +248,11 @@ tr.warn td { color: var(--danger); }
 .event-summary { flex: 1 1 100%; }
 .event-badges { flex: 1 1 100%; display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
 .event-detail { margin: 0 0.4rem 0.5rem 1.6rem; font-size: 0.78rem; }
+.artifact-links { min-width: 0; overflow-wrap: anywhere; }
+.artifact-links p { margin: 0.5rem 0; }
+.artifact-links ul { margin: 0.4rem 0; padding-left: 1.1rem; }
+.artifact-links li { margin-bottom: 0.5rem; }
+.artifact-links summary { cursor: pointer; padding: 0.35rem 0; }
 .event-detail dt { color: var(--muted); }
 .event-detail dd { margin: 0 0 0.25rem; }
 .basis { border-left: 3px solid var(--reconstructed); padding-left: 0.4rem; }
