@@ -2,8 +2,6 @@ import type { ScreenProps } from "./project";
 import { ProvenanceBadge } from "../provenance-badge";
 import { OUTCOME, PHASE_STATUS } from "../labels";
 
-const REPO = "https://github.com/SeckeyJP/j-six/tree";
-
 export function Evidence({ project, state, process }: ScreenProps) {
   const events = project.events;
   const packs = state.evaluations.filter((e) => e.trigger === "evidence_pack");
@@ -28,13 +26,11 @@ export function Evidence({ project, state, process }: ScreenProps) {
                 チェック {ev.results.length} 件（通過 {counts("passed")} / 未達 {counts("failed")} / 未実行 {counts("skipped")}）、
                 対象コミット {commit}
               </p>
-              {project.jsix_dir ? (
-                <a href={`${REPO}/${commit}/${project.jsix_dir}/reports/evidence/${ev.task}`} target="_blank" rel="noreferrer">
-                  J-SIX リポジトリで開く（証跡・参考所見・承認の3区分）
-                </a>
-              ) : (
-                <p className="muted">架空のプロジェクトのため、証跡のファイルはありません。</p>
-              )}
+              <p className="muted">
+                {project.fictional
+                  ? "架空のプロジェクトのため、証跡のファイルはありません。"
+                  : "この証跡の実ファイルは、公開リポジトリ内で確認できていないためリンクしていません。上記は元記録から抽出した結果です。"}
+              </p>
             </article>
           );
         })

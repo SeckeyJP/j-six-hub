@@ -78,3 +78,21 @@ python3 tools/extract_events.py ... --check   # 既存の events.jsonl と一致
 参照のない既存データは同じ種類・タスク・周・実行で未終了の候補が一意の場合だけ対応付ける。
 曖昧な終了や二重終了を別の開始へ割り当てない。収録済み生成物を直接編集する必要はない。
 詳細は [ADR-0004](../docs/adr/0004-deviation-correlation.md) を参照。
+
+## 公開済みの実物へのリンク
+
+`artifact-links.json` は公開 Git の実物への索引（生成物、直接編集しない）。
+元ファイルの本文は転載しない。方針は [ADR-0005](../docs/adr/0005-public-artifact-links.md)。
+仕様・コード・テストなどは固定コミットで参照する。親コミットの仕様・タスク定義は「参考（作業前）」であり、AI の実際の入力とは断定しない。
+元のセッション記録やレポートの実ファイルは公開が確認できていないためリンクしない。
+公開された抽出結果が存在しても、元ファイルが公開されているとは限らない。
+
+```bash
+# 上記の PR 履歴を fetch 済みの J-SIX を指定する。生成時は gh の API で公開を確認する。
+python3 tools/build_artifact_links.py --jsix-repo ../j-six
+# ローカルの Git から再計算して照合する（公開 API の再検証はしない）
+python3 tools/build_artifact_links.py --jsix-repo ../j-six --check
+```
+
+CI の Python テストは、索引が現在のイベント列と一致すること、架空案件にリンクがないことを検査する。
+再生成には非公開セッションは不要。リンク先の将来の削除までは保証しない。

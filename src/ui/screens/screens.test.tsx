@@ -83,10 +83,9 @@ describe("ゲート・承認・証跡", () => {
     expect(rows.filter((r) => r.textContent?.includes("無効"))).toHaveLength(2);
   });
 
-  it("実データのプロジェクトは J-SIX の証跡へリンクし、架空のプロジェクトはファイルが無いことを示す", () => {
+  it("未公開の証跡へ、検査対象コミットを使ったリンクを作らない", () => {
     showProject("monthly-billing", "evidence");
-    expect(screen.getByRole("link", { name: /J-SIX リポジトリで開く/ }).getAttribute("href")).toMatch(
-      /examples\/monthly-billing\/reports\/evidence\/TASK-MB-007$/,
-    );
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText(/公開リポジトリ内で確認できていない/)).toBeInTheDocument();
   });
 });
