@@ -413,33 +413,9 @@ def evidence_events(project: Path, task: str, meta: dict) -> list[dict]:
     """証跡パッケージ（evidence.json）の生成を gate.evaluated にする。"""
     rel = f"reports/evidence/{task}/evidence.json"
     data = json.loads((project / rel).read_text(encoding="utf-8"))
-    results = []
-    layers = []
-    labels = {"passed": "通過", "failed": "未達", "excluded": "対象外", "not-run": "未実行"}
-    for layer, g in sorted(data["gates"].items()):
-        layer_name = layer.upper()
-        layer_status = g.get("status", "unknown")
-        layer_info = {"layer": layer_name, "status": layer_status}
-        if g.get("reason"):
-            layer_info["reason"] = scrub(g["reason"])
-        layers.append(layer_info)
-        if layer_status in ("excluded", "not-run"):
-            results.append({"layer": layer_name, "check": None, "status": "skipped",
-                            "summary": scrub(f"{labels[layer_status]}: {g.get('reason', '理由未記録')}")})
-        for check, r in (g.get("checks") or {}).items():
-            status = "skipped" if r.get("skipped") else ("passed" if r.get("ok") else "failed")
-            summary = r.get("summary", "")
-            if summary.startswith(f"{check}: "):
-                summary = summary[len(check) + 2:]
-            results.append({"layer": layer_name, "check": check, "status": status,
-                            "summary": scrub(summary)})
+    layers, results = _evidence_gate_rows(data["gates"])
     outcome = "passed" if data.get("ok") else "failed"
-    layer_summary = "、".join(
-        f"{g['layer']} {labels.get(g['status'], g['status'])}"
-        + ("（一部未実行）" if g["status"] == "passed" and any(
-            r["layer"] == g["layer"] and r["status"] == "skipped" and r["check"] is not None
-            for r in results) else "") for g in layers
-    )
+    layer_summary = "、".join(_evidence_layer_label(g, results) for g in layers)
     outcome_summary = "選択した検査は通過" if outcome == "passed" else "検査未達"
     return [_base(data["env"]["generated_at"], {**meta, "task": task}, type="gate.evaluated",
                   actor={"kind": "system", "role": "automation"},
@@ -448,6 +424,39 @@ def evidence_events(project: Path, task: str, meta: dict) -> list[dict]:
                            "commit": data["env"].get("commit_sha", "")[:7], "layers": layers,
                            "results": results},
                   source={"kind": "report", "ref": rel})]
+
+
+_LAYER_LABELS = {"passed": "通過", "failed": "未達", "excluded": "対象外", "not-run": "未実行"}
+
+
+def _evidence_gate_rows(gates: dict) -> tuple[list[dict], list[dict]]:
+    layers: list[dict] = []
+    results: list[dict] = []
+    for layer, g in sorted(gates.items()):
+        layer_name = layer.upper()
+        layer_status = g.get("status", "unknown")
+        layer_info = {"layer": layer_name, "status": layer_status}
+        if g.get("reason"):
+            layer_info["reason"] = scrub(g["reason"])
+        layers.append(layer_info)
+        if layer_status in ("excluded", "not-run"):
+            results.append({"layer": layer_name, "check": None, "status": "skipped",
+                            "summary": scrub(f"{_LAYER_LABELS[layer_status]}: {g.get('reason', '理由未記録')}")})
+        for check, r in (g.get("checks") or {}).items():
+            status = "skipped" if r.get("skipped") else ("passed" if r.get("ok") else "failed")
+            summary = r.get("summary", "")
+            if summary.startswith(f"{check}: "):
+                summary = summary[len(check) + 2:]
+            results.append({"layer": layer_name, "check": check, "status": status,
+                            "summary": scrub(summary)})
+    return layers, results
+
+
+def _evidence_layer_label(layer: dict, results: list[dict]) -> str:
+    partial = layer["status"] == "passed" and any(
+        r["layer"] == layer["layer"] and r["status"] == "skipped" and r["check"] is not None
+        for r in results)
+    return f"{layer['layer']} {_LAYER_LABELS.get(layer['status'], layer['status'])}" + ("（一部未実行）" if partial else "")
 
 
 # --- 要求とトレーサビリティ ---------------------------------------------------
@@ -670,6 +679,8 @@ def build(jsix_repo: Path, sessions_dir: Path | None, project: dict) -> list[dic
 def refresh_evidence(jsix_repo: Path, project: dict) -> list[dict]:
     """私的セッションを再抽出せず、固定済み列の report 由来イベントだけを再生成する。"""
     pdir = DATA / "projects" / project["id"]
+    if not (pdir / "sources.json").is_file():
+        return _read_jsonl(pdir / "events.jsonl")
     sources = json.loads((pdir / "sources.json").read_text(encoding="utf-8"))
     events = _read_jsonl(pdir / "events.jsonl")
     for item in sources.get("evidence", []):
