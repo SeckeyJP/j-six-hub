@@ -54,6 +54,8 @@ export interface Evaluation {
   count: number;
   results: GateResult[];
   task: string | null;
+  /** 対応が一意に決まった投入 seq。null の判定はタスク完了に使用しない */
+  taskDispatchedAt: number | null;
   phase: PhaseId | null;
   provenance: Provenance;
 }

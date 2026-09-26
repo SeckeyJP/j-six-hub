@@ -285,6 +285,55 @@ describe("タスク", () => {
     expect(phase(done, "P4").status).toBe("approved");
   });
 
+  it("進行中の P4 でも逆戻り前の投入・遅着した合格を再利用しない", () => {
+    const old = ev({ type: "task.dispatched", phase: "P4", task: T });
+    const rollback = ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } });
+    const late = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", results: [] } });
+    const fresh = ev({ type: "task.dispatched", phase: "P4", task: "TASK-NEW" });
+    const done = ev({ type: "gate.evaluated", phase: "P4", task: "TASK-NEW", payload: { outcome: "passed", results: [] } });
+    const list = [old, rollback, late, fresh, done];
+    expect(phase(run(list, 3), "P4")).toMatchObject({ status: "in_progress", needsReapproval: true, reopenedAt: rollback.seq });
+    expect(phase(run(list, 4), "P4").status).toBe("in_progress");
+    expect(phase(run(list), "P4")).toMatchObject({ status: "approved", needsReapproval: false });
+  });
+
+  it("同じタスクの再投入後、旧判定の遅着は再承認に使わず、新投入を参照した判定だけで完了する", () => {
+    const old = ev({ type: "task.dispatched", phase: "P4", task: T });
+    const rollback = ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } });
+    const fresh = ev({ type: "task.dispatched", phase: "P4", task: T });
+    const ambiguous = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed" } });
+    const oldResult = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: old.seq } });
+    const currentResult = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: fresh.seq } });
+    const list = [old, rollback, fresh, ambiguous, oldResult, currentResult];
+
+    const afterAmbiguous = run(list, 4);
+    expect(phase(afterAmbiguous, "P4")).toMatchObject({ status: "in_progress", needsReapproval: true });
+    expect(afterAmbiguous.tasks[1]!.status).toBe("waiting");
+    expect(afterAmbiguous.evaluations.at(-1)!.taskDispatchedAt).toBeNull();
+
+    const afterOld = run(list, 5);
+    expect(phase(afterOld, "P4")).toMatchObject({ status: "in_progress", needsReapproval: true });
+    expect(afterOld.tasks.map((t) => t.status)).toEqual(["passed", "waiting"]);
+    expect(afterOld.evaluations.at(-1)!.taskDispatchedAt).toBe(old.seq);
+
+    const done = run(list);
+    expect(phase(done, "P4")).toMatchObject({ status: "approved", needsReapproval: false });
+    expect(done.tasks[1]!.status).toBe("passed");
+    expect(done.evaluations.at(-1)!.taskDispatchedAt).toBe(fresh.seq);
+  });
+
+  it("誤った投入参照の判定を別タスクや最新の投入へ割り当てない", () => {
+    const first = ev({ type: "task.dispatched", phase: "P4", task: T });
+    const other = ev({ type: "task.dispatched", phase: "P4", task: "TASK-OTHER" });
+    const wrongTask = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: other.seq } });
+    const missing = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: 99999 } });
+    const malformed = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: String(first.seq) } });
+    const state = run([first, other, wrongTask, missing, malformed]);
+    expect(state.tasks.map((t) => t.status)).toEqual(["waiting", "waiting"]);
+    expect(state.evaluations.map((e) => e.taskDispatchedAt)).toEqual([null, null, null]);
+    expect(phase(state, "P4").status).toBe("in_progress");
+  });
+
   it("投入時の担当（チーム・ベンダー）を記録する", () => {
     const s = run([ev({ type: "task.dispatched", phase: "P4", task: T, payload: { team: "ベンダー A" } })]);
     expect(s.tasks[0]!.team).toBe("ベンダー A");

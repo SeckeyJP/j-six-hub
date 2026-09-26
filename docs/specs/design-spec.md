@@ -73,11 +73,12 @@
 | `ai.session.started`（task あり） | タスクを実行中にする |
 | `ai.agent.started`（task あり） | 現在の工程を `payload.step` にする。G3 なら判定中にする |
 | `commit.created`（task あり） | 工程を記録する。task が無く P4 のコミットなら、同じ一周の ID なしタスクを「合格（ゲート記録なし）」にする |
-| `gate.evaluated` | 判定を記録する。task があれば、`passed` で合格、それ以外で不合格にする |
+| `gate.evaluated` | 判定を記録する。task の投入が一意に特定できた場合だけ、`passed` で合格、それ以外で不合格にする。再投入後の判定は `payload.dispatch_seq` で対象の `task.dispatched.seq` を指定する（ADR-0006） |
 | `requirements.updated` / `traceability.updated` | その時点の一覧で置き換える。要求にあってテストが無い要件を「テスト未対応」として数える |
 
 **per_task の Phase（P4）**は、タスクが1件以上あり全タスクが合格したとき承認済みとみなす（プロセス定義の遷移 `all_tasks_done`）。承認済み後にタスクを再実行・追加したときは、そのタスクを含めて再評価が終わるまで進行中とする。
 逆戻りで開き直した後は、**開き直した後に投入したタスク**だけで判定する（前の周に合格したタスクで完了にしない）。
+同じ task・iteration の再投入が複数あり `dispatch_seq` のない判定は、到着順から対象を推測せず、監査履歴に残してタスク完了には使用しない。
 
 ### 3.3 Property の実装方針
 

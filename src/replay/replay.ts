@@ -210,7 +210,7 @@ function openDeviation(ctx: Ctx, ev: HubEvent): void {
   if (from < 0) return;
   for (const [index, p] of ctx.state.phases.slice(from).entries()) {
     if (p.mode === "continuous") continue;
-    if (p.status === "approved") {
+    if (p.status === "approved" || (p.mode === "per_task" && p.status === "in_progress")) {
       p.reopened = true;
       p.needsReapproval = true;
       p.reopenedAt = ev.seq;
@@ -261,9 +261,16 @@ function updateTask(state: HubState, ev: HubEvent, fn: (t: TaskView) => void): v
   if (t) fn(t);
 }
 
-function taskForEvent(state: HubState, ev: HubEvent): TaskView | undefined {
+function taskForEvent(state: HubState, ev: HubEvent, requireUnique = false): TaskView | undefined {
   if (!ev.task) return undefined;
-  return [...state.tasks].reverse().find((x) => x.id === ev.task && x.iteration === (ev.iteration ?? ""));
+  const candidates = state.tasks.filter((x) => x.id === ev.task && x.iteration === (ev.iteration ?? ""));
+  const dispatchedAt = ev.payload?.dispatch_seq;
+  if (dispatchedAt !== undefined) {
+    if (typeof dispatchedAt !== "number" || !Number.isSafeInteger(dispatchedAt) || dispatchedAt >= ev.seq) return undefined;
+    return candidates.find((x) => x.dispatchedAt === dispatchedAt);
+  }
+  // 合否だけは曖昧な旧形式から推測しない。その他の既存イベントは従来の表示を維持する。
+  return requireUnique ? (candidates.length === 1 ? candidates[0] : undefined) : candidates.at(-1);
 }
 
 function startAgent(t: TaskView, ev: HubEvent): void {
@@ -297,6 +304,7 @@ function applyCommit(state: HubState, ev: HubEvent): void {
 
 function applyEvaluation(state: HubState, ev: HubEvent): void {
   const outcome = str(ev.payload?.outcome) ?? "unknown";
+  const task = taskForEvent(state, ev, true);
   state.evaluations.push({
     eventId: ev.id,
     gate: str(ev.payload?.gate),
@@ -305,13 +313,14 @@ function applyEvaluation(state: HubState, ev: HubEvent): void {
     count: typeof ev.payload?.count === "number" ? ev.payload.count : 1,
     results: Array.isArray(ev.payload?.results) ? (ev.payload.results as GateResult[]) : [],
     task: ev.task ?? null,
+    taskDispatchedAt: task?.dispatchedAt ?? null,
     phase: ev.phase ?? null,
     provenance: ev.provenance,
   });
-  updateTask(state, ev, (t) => {
-    t.status = outcome === "passed" ? "passed" : "failed";
-    t.gateRecorded = true;
-  });
+  if (task) {
+    task.status = outcome === "passed" ? "passed" : "failed";
+    task.gateRecorded = true;
+  }
 }
 
 function list<T>(v: unknown): T[] {

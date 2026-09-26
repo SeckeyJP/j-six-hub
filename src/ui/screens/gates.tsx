@@ -18,6 +18,9 @@ export function Gates({ state, process }: ScreenProps) {
             </h3>
             <p className="meta">
               {ev.eventId} / {gate?.name ?? ev.gate} / Phase {ev.phase ?? "—"} / タスク {ev.task ?? "—"}
+              {ev.task && (ev.taskDispatchedAt === null
+                ? " / 対象実行未特定（タスク完了には未使用）"
+                : ` / 投入 seq ${ev.taskDispatchedAt}`)}
             </p>
             {layers.map((layerId) => {
               const layer = gate?.layers.find((l) => l.id === layerId);
