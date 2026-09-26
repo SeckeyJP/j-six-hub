@@ -302,8 +302,8 @@ describe("タスク", () => {
     const rollback = ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } });
     const fresh = ev({ type: "task.dispatched", phase: "P4", task: T });
     const ambiguous = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed" } });
-    const oldResult = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatched_at: old.seq } });
-    const currentResult = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatched_at: fresh.seq } });
+    const oldResult = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: old.seq } });
+    const currentResult = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: fresh.seq } });
     const list = [old, rollback, fresh, ambiguous, oldResult, currentResult];
 
     const afterAmbiguous = run(list, 4);
@@ -320,6 +320,18 @@ describe("タスク", () => {
     expect(phase(done, "P4")).toMatchObject({ status: "approved", needsReapproval: false });
     expect(done.tasks[1]!.status).toBe("passed");
     expect(done.evaluations.at(-1)!.taskDispatchedAt).toBe(fresh.seq);
+  });
+
+  it("誤った投入参照の判定を別タスクや最新の投入へ割り当てない", () => {
+    const first = ev({ type: "task.dispatched", phase: "P4", task: T });
+    const other = ev({ type: "task.dispatched", phase: "P4", task: "TASK-OTHER" });
+    const wrongTask = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: other.seq } });
+    const missing = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: 99999 } });
+    const malformed = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", dispatch_seq: String(first.seq) } });
+    const state = run([first, other, wrongTask, missing, malformed]);
+    expect(state.tasks.map((t) => t.status)).toEqual(["waiting", "waiting"]);
+    expect(state.evaluations.map((e) => e.taskDispatchedAt)).toEqual([null, null, null]);
+    expect(phase(state, "P4").status).toBe("in_progress");
   });
 
   it("投入時の担当（チーム・ベンダー）を記録する", () => {

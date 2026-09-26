@@ -87,6 +87,10 @@ python3 tools/extract_events.py --jsix-repo ../j-six --refresh-evidence
 曖昧な終了や二重終了を別の開始へ割り当てない。収録済み生成物を直接編集する必要はない。
 詳細は [ADR-0004](../docs/adr/0004-deviation-correlation.md) を参照。
 
+## ゲート判定とタスク投入の対応
+
+同じ task・iteration を再投入する場合、新しい `gate.evaluated` は `payload.dispatch_seq` に対象の `task.dispatched` の `seq` を記録する。存在しない投入や別タスクの投入を参照しても、別の試行にはフォールバックしない。参照のない判定は投入が一意のときだけタスクへ適用し、複数ある場合は履歴に残すが完了には使わない。公開済みイベントを推測で書き換えない。詳細は [ADR-0006](../docs/adr/0006-gate-evaluation-dispatch-correlation.md) を参照。
+
 ## 公開済みの実物へのリンク
 
 `artifact-links.json` は公開 Git の実物への索引（生成物、直接編集しない）。
