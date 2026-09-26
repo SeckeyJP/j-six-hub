@@ -285,6 +285,18 @@ describe("タスク", () => {
     expect(phase(done, "P4").status).toBe("approved");
   });
 
+  it("進行中の P4 でも逆戻り前の投入・遅着した合格を再利用しない", () => {
+    const old = ev({ type: "task.dispatched", phase: "P4", task: T });
+    const rollback = ev({ type: "deviation.opened", payload: { deviation: "phase_rollback", to_phase: "P1" } });
+    const late = ev({ type: "gate.evaluated", phase: "P4", task: T, payload: { outcome: "passed", results: [] } });
+    const fresh = ev({ type: "task.dispatched", phase: "P4", task: "TASK-NEW" });
+    const done = ev({ type: "gate.evaluated", phase: "P4", task: "TASK-NEW", payload: { outcome: "passed", results: [] } });
+    const list = [old, rollback, late, fresh, done];
+    expect(phase(run(list, 3), "P4")).toMatchObject({ status: "in_progress", needsReapproval: true, reopenedAt: rollback.seq });
+    expect(phase(run(list, 4), "P4").status).toBe("in_progress");
+    expect(phase(run(list), "P4")).toMatchObject({ status: "approved", needsReapproval: false });
+  });
+
   it("投入時の担当（チーム・ベンダー）を記録する", () => {
     const s = run([ev({ type: "task.dispatched", phase: "P4", task: T, payload: { team: "ベンダー A" } })]);
     expect(s.tasks[0]!.team).toBe("ベンダー A");

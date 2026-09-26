@@ -358,6 +358,25 @@ def test_evidence_event(tmp_path):
     assert ev["source"] == {"kind": "report", "ref": "reports/evidence/TASK-AW-002/evidence.json"}
 
 
+def test_evidence_excluded_layer_is_not_called_passed(tmp_path):
+    ev_dir = tmp_path / "reports" / "evidence" / "TASK-MB-007"
+    ev_dir.mkdir(parents=True)
+    (ev_dir / "evidence.json").write_text(json.dumps({
+        "ok": True,
+        "env": {"generated_at": "2026-09-21T05:00:00Z", "commit_sha": "abcdef012345"},
+        "gates": {
+            "g1": {"status": "passed", "checks": {}},
+            "g2": {"status": "passed", "checks": {}},
+            "g3": {"status": "excluded", "reason": "--gates で対象外", "checks": {}},
+        },
+    }), encoding="utf-8")
+    [event] = ee.evidence_events(tmp_path, "TASK-MB-007", {"phase": "P4", "iteration": "it"})
+    assert "G3 対象外" in event["summary"]
+    assert "G1〜G3 通過" not in event["summary"]
+    assert {"layer": "G3", "status": "excluded", "reason": "--gates で対象外"} in event["payload"]["layers"]
+    assert {"layer": "G3", "check": None, "status": "skipped", "summary": "対象外: --gates で対象外"} in event["payload"]["results"]
+
+
 # --- 合流 ---------------------------------------------------------------------
 
 def test_assemble_orders_and_numbers_events():
