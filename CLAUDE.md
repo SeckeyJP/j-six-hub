@@ -41,6 +41,8 @@
 python3 -m pip install jsonschema pytest     # テスト用
 python3 -m pytest tools/tests -q              # 抽出スクリプトとデータの検査
 python3 tools/extract_events.py --jsix-repo ../j-six --sessions <セッション記録のディレクトリ>   # 再生成（著者の手元のみ）
+python3 tools/extract_events.py --jsix-repo ../j-six --project monthly-billing  # 公開元記録だけの案件
+python3 tools/extract_events.py --jsix-repo ../j-six --refresh-evidence        # 私的セッションを再抽出せず report イベントだけ更新
 
 # Web アプリ（TypeScript + React + Vite。docs/adr/0002）
 npm ci                 # 依存インストール

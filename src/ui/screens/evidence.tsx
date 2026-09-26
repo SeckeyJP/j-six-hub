@@ -40,9 +40,10 @@ export function Evidence({ project, state, process }: ScreenProps) {
           <h3 id="review-title">{reviewGate.name}</h3>
           <p>
             {reviewPhase.id} {PHASE_STATUS[reviewPhase.status]}
+            {reviewPhase.needsReapproval && " — 再承認待ち"}
             {approval && (
               <>
-                {" "}
+                {reviewPhase.needsReapproval ? " ／ 以前の承認: " : " ／ 承認記録: "}
                 <ProvenanceBadge value={approval.provenance} /> {approval.eventId}
               </>
             )}

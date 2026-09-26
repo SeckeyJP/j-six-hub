@@ -210,7 +210,7 @@ function openDeviation(ctx: Ctx, ev: HubEvent): void {
   if (from < 0) return;
   for (const [index, p] of ctx.state.phases.slice(from).entries()) {
     if (p.mode === "continuous") continue;
-    if (p.status === "approved") {
+    if (p.status === "approved" || (p.mode === "per_task" && p.status === "in_progress")) {
       p.reopened = true;
       p.needsReapproval = true;
       p.reopenedAt = ev.seq;

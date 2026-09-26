@@ -67,7 +67,15 @@ approval-workflow はセッション記録が必要なため、著者の手元�
 git -C ../j-six fetch origin pull/4/head:refs/replay/pr-4 pull/5/head:refs/replay/pr-5 pull/18/head:refs/replay/pr-18
 python3 tools/extract_events.py --jsix-repo ../j-six --sessions ~/.claude/projects/<approval-workflow の作業ディレクトリ>
 python3 tools/extract_events.py ... --check   # 既存の events.jsonl と一致するか
+# 非公開セッションを要しない monthly-billing の全件再抽出
+python3 tools/extract_events.py --jsix-repo ../j-six --project monthly-billing
+# セッションを再抽出せず、元レポートから report イベントだけを更新
+python3 tools/extract_events.py --jsix-repo ../j-six --refresh-evidence
 ```
+
+証跡パッケージの `ok` は選択した検査の総合結果であり、全層を実施した意味ではない。
+各イベントの `payload.layers` に G1〜G3 の状態と除外理由を残す。抽出後は
+`artifact-links.json` も生成器から更新し、イベント列 SHA-256 の整合を検査する。
 
 
 ## 例外の開始と終了

@@ -414,20 +414,39 @@ def evidence_events(project: Path, task: str, meta: dict) -> list[dict]:
     rel = f"reports/evidence/{task}/evidence.json"
     data = json.loads((project / rel).read_text(encoding="utf-8"))
     results = []
+    layers = []
+    labels = {"passed": "通過", "failed": "未達", "excluded": "対象外", "not-run": "未実行"}
     for layer, g in sorted(data["gates"].items()):
+        layer_name = layer.upper()
+        layer_status = g.get("status", "unknown")
+        layer_info = {"layer": layer_name, "status": layer_status}
+        if g.get("reason"):
+            layer_info["reason"] = scrub(g["reason"])
+        layers.append(layer_info)
+        if layer_status in ("excluded", "not-run"):
+            results.append({"layer": layer_name, "check": None, "status": "skipped",
+                            "summary": scrub(f"{labels[layer_status]}: {g.get('reason', '理由未記録')}")})
         for check, r in (g.get("checks") or {}).items():
             status = "skipped" if r.get("skipped") else ("passed" if r.get("ok") else "failed")
             summary = r.get("summary", "")
             if summary.startswith(f"{check}: "):
                 summary = summary[len(check) + 2:]
-            results.append({"layer": layer.upper(), "check": check, "status": status,
+            results.append({"layer": layer_name, "check": check, "status": status,
                             "summary": scrub(summary)})
     outcome = "passed" if data.get("ok") else "failed"
+    layer_summary = "、".join(
+        f"{g['layer']} {labels.get(g['status'], g['status'])}"
+        + ("（一部未実行）" if g["status"] == "passed" and any(
+            r["layer"] == g["layer"] and r["status"] == "skipped" and r["check"] is not None
+            for r in results) else "") for g in layers
+    )
+    outcome_summary = "選択した検査は通過" if outcome == "passed" else "検査未達"
     return [_base(data["env"]["generated_at"], {**meta, "task": task}, type="gate.evaluated",
                   actor={"kind": "system", "role": "automation"},
-                  summary=f"証跡パッケージを生成した（G1〜G3 {'通過' if outcome == 'passed' else '未達'}）",
+                  summary=f"証跡パッケージを生成した（{outcome_summary}。{layer_summary}）",
                   payload={"gate": "task_quality_gate", "trigger": "evidence_pack", "outcome": outcome,
-                           "commit": data["env"].get("commit_sha", "")[:7], "results": results},
+                           "commit": data["env"].get("commit_sha", "")[:7], "layers": layers,
+                           "results": results},
                   source={"kind": "report", "ref": rel})]
 
 
@@ -648,16 +667,45 @@ def build(jsix_repo: Path, sessions_dir: Path | None, project: dict) -> list[dic
     return assemble(events)
 
 
+def refresh_evidence(jsix_repo: Path, project: dict) -> list[dict]:
+    """私的セッションを再抽出せず、固定済み列の report 由来イベントだけを再生成する。"""
+    pdir = DATA / "projects" / project["id"]
+    sources = json.loads((pdir / "sources.json").read_text(encoding="utf-8"))
+    events = _read_jsonl(pdir / "events.jsonl")
+    for item in sources.get("evidence", []):
+        new = evidence_events(jsix_repo / sources["project_dir"], item["task"], item)[0]
+        matches = [i for i, old in enumerate(events) if old.get("type") == "gate.evaluated"
+                   and old.get("source") == new["source"]]
+        if len(matches) != 1:
+            raise ValueError(f"{project['id']}: report event {new['source']} が一意ではありません")
+        index = matches[0]
+        old = events[index]
+        if old["timestamp"] != new["timestamp"] or old.get("task") != new.get("task"):
+            raise ValueError(f"{project['id']}: event {old['id']} の時刻またはタスクが変わりました。全件再抽出が必要です")
+        events[index] = {**new, "seq": old["seq"], "id": old["id"]}
+        events[index] = {k: events[index][k] for k in _KEY_ORDER if k in events[index]}
+    return events
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--jsix-repo", type=Path, required=True)
     ap.add_argument("--sessions", type=Path, help="セッション記録のディレクトリ（approval-workflow で使う）")
+    ap.add_argument("--project", help="指定案件だけ再抽出する（他案件の非公開セッションを要求しない）")
+    ap.add_argument("--refresh-evidence", action="store_true",
+                    help="保存済みイベント列の report 由来イベントだけを再生成する")
     ap.add_argument("--check", action="store_true", help="生成結果が既存の events.jsonl と一致しなければ 1 で終了")
     args = ap.parse_args(argv)
 
     status = 0
-    for project in load_projects()["projects"]:
-        events = build(args.jsix_repo, args.sessions.expanduser() if args.sessions else None, project)
+    projects = load_projects()["projects"]
+    if args.project:
+        projects = [p for p in projects if p["id"] == args.project]
+        if not projects:
+            ap.error(f"未知の案件: {args.project}")
+    for project in projects:
+        events = (refresh_evidence(args.jsix_repo, project) if args.refresh_evidence else
+                  build(args.jsix_repo, args.sessions.expanduser() if args.sessions else None, project))
         problems = privacy_problems(events)
         if problems:
             for p in problems:
