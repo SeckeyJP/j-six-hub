@@ -48,7 +48,14 @@ function assertRecord(value, allowSystem = false) {
     if (hash !== undefined && !/^[0-9a-f]{64}$/.test(hash)) throw new Error(`record ${key} SHA/hashが不正です`);
   }
   if (record.kind === "project.created" &&
-      (!record.payload.processSha256 || !record.payload.policySha256)) throw new Error("作成recordのSHA/hashが不足しています");
+      (!record.payload.processSha256 || !record.payload.policySha256 ||
+        !/^[0-9a-f]{40,64}$/.test(record.payload.processCommit) ||
+        !/^[0-9a-f]{40,64}$/.test(record.payload.targetCommit) ||
+        typeof record.payload.targetRepoId !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(record.payload.targetRepoId) ||
+        typeof record.payload.fixtureId !== "string" || !record.payload.fixtureId.trim())) {
+    throw new Error("作成recordの対象repo・基準commit・process版・合成題材が不足しています");
+  }
   return record;
 }
 

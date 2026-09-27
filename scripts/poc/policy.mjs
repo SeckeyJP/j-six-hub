@@ -22,5 +22,6 @@ export const localPolicySha256 = createHash("sha256").update(JSON.stringify(loca
 export function validateArtifactStructure(artifactId, content, policy = localPolicy) {
   if (policy.schemaVersion !== 1) throw new Error("未知のPoC方針schemaです");
   const required = /** @type {Record<string, string[]>} */ (policy.artifactRules)[artifactId] ?? [];
+  if (typeof content !== "string" || !content.trim()) return ["content:empty", ...required];
   return required.filter((token) => !content.includes(token));
 }

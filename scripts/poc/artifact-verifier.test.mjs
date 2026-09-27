@@ -33,7 +33,7 @@ describe("Git artifact verifier", () => {
     const submitted = { recordId: "constitution-v1", kind: "artifact.submitted",
       payload: { artifactId: "constitution", targetCommit: commit, path: "constitution.md", sha256 } };
     expect(verifyArtifact(root, submitted.payload)).toBe(true);
-    expect(verifiedSnapshot(root, [submitted], commit)).toEqual({ commit, verifiedRecordIds: ["constitution-v1"], invalidRecords: [] });
+    expect(verifiedSnapshot(root, [submitted], commit, "approval-workflow")).toEqual({ repoId: "approval-workflow", commit, verifiedRecordIds: ["constitution-v1"], currentRecordIds: ["constitution-v1"], invalidRecords: [] });
   });
 
   it("rejects wrong hashes, path traversal, and symlink entries", async () => {
@@ -49,7 +49,7 @@ describe("Git artifact verifier", () => {
     const record = { recordId: "req", kind: "artifact.submitted", payload: {
       artifactId: "requirement_spec", targetCommit: commit, path: "requirements.md", sha256,
     } };
-    const snapshot = verifiedSnapshot(root, [record], commit);
+    const snapshot = verifiedSnapshot(root, [record], commit, "approval-workflow");
     expect(snapshot.verifiedRecordIds).toEqual([]);
     expect(snapshot.invalidRecords[0]?.reason).toMatch(/構造|REQ-/);
   });
@@ -65,6 +65,46 @@ describe("Git artifact verifier", () => {
     const prior = { recordId: "constitution-old", kind: "artifact.submitted", payload: {
       artifactId: "constitution", targetCommit: commit, path: "constitution.md", sha256,
     } };
-    expect(verifiedSnapshot(root, [prior], current).verifiedRecordIds).toContain("constitution-old");
+    const snapshot = verifiedSnapshot(root, [prior], current, "approval-workflow");
+    expect(snapshot.verifiedRecordIds).toContain("constitution-old");
+    expect(snapshot.currentRecordIds).toContain("constitution-old");
+  });
+
+  it("distinguishes unrelated later edits from changes to a passed artifact", async () => {
+    const { root, commit, sha256 } = await fixture();
+    const record = { recordId: "constitution-old", kind: "artifact.submitted", payload: {
+      artifactId: "constitution", targetCommit: commit, path: "constitution.md", sha256,
+    } };
+    await writeFile(join(root, "unrelated.md"), "new work\n");
+    const env = { ...process.env, GIT_AUTHOR_NAME: "PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
+      GIT_COMMITTER_NAME: "PoC", GIT_COMMITTER_EMAIL: "poc@localhost" };
+    execFileSync("git", ["-C", root, "add", "unrelated.md"], { env });
+    execFileSync("git", ["-C", root, "commit", "-qm", "unrelated"], { env });
+    const unrelated = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    expect(verifiedSnapshot(root, [record], unrelated, "approval-workflow").currentRecordIds).toContain("constitution-old");
+    await writeFile(join(root, "constitution.md"), "changed rules\n");
+    execFileSync("git", ["-C", root, "add", "constitution.md"], { env });
+    execFileSync("git", ["-C", root, "commit", "-qm", "changed prior artifact"], { env });
+    const changed = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const later = verifiedSnapshot(root, [record], changed, "approval-workflow");
+    expect(later.verifiedRecordIds).toContain("constitution-old");
+    expect(later.currentRecordIds).not.toContain("constitution-old");
+  });
+
+  it("rejects empty and whitespace-only Git blobs as submissions", async () => {
+    const { root } = await fixture();
+    const env = { ...process.env, GIT_AUTHOR_NAME: "PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
+      GIT_COMMITTER_NAME: "PoC", GIT_COMMITTER_EMAIL: "poc@localhost" };
+    await writeFile(join(root, "constitution.md"), "  \n\t");
+    execFileSync("git", ["-C", root, "add", "constitution.md"], { env });
+    execFileSync("git", ["-C", root, "commit", "-qm", "blank constitution"], { env });
+    const commit = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const sha256 = createHash("sha256").update("  \n\t").digest("hex");
+    const record = { recordId: "blank", kind: "artifact.submitted", payload: {
+      artifactId: "constitution", targetCommit: commit, path: "constitution.md", sha256,
+    } };
+    const result = verifiedSnapshot(root, [record], commit, "approval-workflow");
+    expect(result.verifiedRecordIds).toEqual([]);
+    expect(result.invalidRecords[0]?.reason).toMatch(/empty|空|構造/);
   });
 });

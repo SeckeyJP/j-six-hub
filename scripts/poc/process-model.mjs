@@ -78,13 +78,22 @@ export function validateProcess(process, pinnedSha256) {
       throw new Error(`定義済み遷移 ${from.id}→${to.id} がありません`);
     }
   }
-  return { phases, phaseIds, gates: gateByPhase };
+  if (!commitId.test(process._source?.tag)) throw new Error("固定process参照commitが不正です");
+  return { phases, phaseIds, gates: gateByPhase, processCommit: process._source.tag };
 }
 
-/** @param {any[]} records @param {any} model @param {{commit:string,verifiedRecordIds:string[]}} snapshot */
+/** @param {any[]} records @param {any} model @param {{repoId:string,commit:string,verifiedRecordIds:string[],currentRecordIds:string[]}} snapshot */
 function projectPosition(records, model, snapshot) {
   const first = records[0];
   if (first?.kind !== "project.created") throw new Error("project.createdが先頭にありません");
+  if (!sha256.test(first.payload?.processSha256) || !sha256.test(first.payload?.policySha256) ||
+    !commitId.test(first.payload?.processCommit) || first.payload.processCommit !== model.processCommit ||
+    !commitId.test(first.payload?.targetCommit) ||
+    typeof first.payload?.targetRepoId !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(first.payload.targetRepoId) ||
+    typeof first.payload.fixtureId !== "string" || !first.payload.fixtureId.trim()) {
+    throw new Error("案件作成recordの対象repo・基準commit・process版・合成題材が不正です");
+  }
   const ids = new Set();
   let phase = model.phaseIds[0];
   let generation = 0;
@@ -219,12 +228,14 @@ function gateGaps(gate, records, review, generation, now) {
 /**
  * Pure projection. The snapshot must come from a separate Git verifier; an unverified claim is never a pass.
  * @param {any[]} records @param {any} process @param {string} policySha256
- * @param {{commit:string,verifiedRecordIds:string[]}} snapshot @param {string=} now
+ * @param {{repoId:string,commit:string,verifiedRecordIds:string[],currentRecordIds:string[]}} snapshot @param {string=} now
  */
 export function evaluateProject(records, process, policySha256, snapshot, now = new Date().toISOString()) {
   if (!Array.isArray(records) || !records.length) throw new Error("案件recordがありません");
   instant(now);
-  if (!snapshot || !Array.isArray(snapshot.verifiedRecordIds)) throw new Error("対象Gitの照合結果がありません");
+  if (!snapshot || !Array.isArray(snapshot.verifiedRecordIds) || !Array.isArray(snapshot.currentRecordIds)) {
+    throw new Error("対象Gitの履歴・現在版照合結果がありません");
+  }
   const model = validateProcess(process, records[0]?.payload?.processSha256);
   const { phase, generation, first } = projectPosition(records, model, snapshot);
   const current = model.phases.find((item) => item.id === phase);
@@ -232,7 +243,23 @@ export function evaluateProject(records, process, policySha256, snapshot, now = 
   const gate = model.gates[phase];
   const missing = [];
   if (!sha256.test(policySha256) || first.payload.policySha256 !== policySha256) missing.push("policy:changed");
+  if (snapshot.repoId !== first.payload.targetRepoId) missing.push("target:repo-mismatch");
   if (!commitId.test(snapshot?.commit) || !Array.isArray(snapshot?.verifiedRecordIds)) missing.push("target:unverified");
+  /** @type {any[]} */
+  let activeTransitions = [];
+  for (const item of records) {
+    if (item.kind === "phase.transitioned") activeTransitions.push(item);
+    if (item.kind === "phase.reopened") {
+      const reopenIndex = model.phaseIds.indexOf(item.payload.phase);
+      activeTransitions = activeTransitions.filter((transition) =>
+        model.phaseIds.indexOf(transition.payload.from) < reopenIndex);
+    }
+  }
+  for (const transition of activeTransitions) {
+    for (const id of transition.payload.artifactRecordIds) {
+      if (!snapshot.currentRecordIds.includes(id)) missing.push(`passed-artifact:${id}:changed`);
+    }
+  }
   const submissions = records.filter((item) => item.kind === "artifact.submitted" &&
     item.payload?.phase === phase && item.payload?.generation === generation);
   const outputs = /** @type {string[]} */ (current.outputs);

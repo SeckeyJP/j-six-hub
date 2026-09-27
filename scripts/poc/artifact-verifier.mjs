@@ -39,9 +39,13 @@ export function verifyArtifact(repo, artifact) {
   return true;
 }
 
-/** @param {string} repo @param {any[]} records @param {string} commit */
-export function verifiedSnapshot(repo, records, commit) {
+/** @param {string} repo @param {any[]} records @param {string} commit @param {string} repoId */
+export function verifiedSnapshot(repo, records, commit, repoId) {
+  if (typeof repoId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(repoId)) {
+    throw new Error("対象repo IDが不正です");
+  }
   const verifiedRecordIds = [];
+  const currentRecordIds = [];
   const invalidRecords = [];
   // A recorded transition remains provisional until its historical Git blobs can be rechecked.
   for (const record of records) {
@@ -52,9 +56,13 @@ export function verifiedSnapshot(repo, records, commit) {
       const gaps = validateArtifactStructure(record.payload.artifactId, content);
       if (gaps.length) throw new Error(`artifact構造が不足しています: ${gaps.join(", ")}`);
       verifiedRecordIds.push(record.recordId);
+      try {
+        verifyArtifact(repo, { ...record.payload, targetCommit: commit });
+        currentRecordIds.push(record.recordId);
+      } catch { /* Historical evidence remains valid, but its current premise has changed. */ }
     } catch (error) {
       invalidRecords.push({ recordId: record.recordId, reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  return { commit, verifiedRecordIds, invalidRecords };
+  return { repoId, commit, verifiedRecordIds, currentRecordIds, invalidRecords };
 }

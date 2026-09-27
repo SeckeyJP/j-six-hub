@@ -26,7 +26,9 @@ function event(recordId, kind = "project.created") {
     projectId: "sample",
     kind,
     recordedAt: "2026-09-27T00:00:00.000Z",
-    payload: { processSha256: "a".repeat(64), policySha256: "b".repeat(64) },
+    payload: { processSha256: "a".repeat(64), policySha256: "b".repeat(64),
+      processCommit: "c".repeat(40), targetRepoId: "approval-workflow",
+      targetCommit: "d".repeat(40), fixtureId: "approval-workflow" },
   };
 }
 

@@ -22,7 +22,8 @@ const created = {
   projectId: "sample",
   kind: "project.created",
   recordedAt: "2026-09-27T00:00:00.000Z",
-  payload: { processSha256, policySha256, targetCommit: artifactCommit, fixtureId: "approval-workflow" },
+  payload: { processSha256, policySha256, processCommit: process._source.tag,
+    targetRepoId: "approval-workflow", targetCommit: artifactCommit, fixtureId: "approval-workflow" },
 };
 
 /** @param {string} id @param {string} from @param {string} to @param {string[]} artifactRecordIds
@@ -34,7 +35,8 @@ const transitioned = (id, from, to, artifactRecordIds, reviewRecordId = null, de
     artifactRecordIds, reviewRecordId, decisionRecordIds },
 });
 
-const snapshot = { commit: artifactCommit, verifiedRecordIds: ["constitution", "req", "flow", "req-v2"] };
+const snapshot = { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds: ["constitution", "req", "flow", "req-v2"],
+  currentRecordIds: ["constitution", "req", "flow", "req-v2"] };
 
 /** @returns {any[]} */
 function p1ReadyRecords() {
@@ -163,7 +165,7 @@ describe("process projection", () => {
   it("rejects a recorded transition when the historical artifact was not Git-verified", () => {
     const history = [created, submitted("constitution", "P0", "constitution"),
       transitioned("to-p1", "P0", "P1", ["constitution"])];
-    expect(() => evaluateProject(history, process, policySha256, { commit: artifactCommit, verifiedRecordIds: [] }))
+    expect(() => evaluateProject(history, process, policySha256, { ...snapshot, verifiedRecordIds: [] }))
       .toThrow(/未検証|照合/);
   });
 
@@ -235,11 +237,51 @@ describe("process projection", () => {
         expiresAt: "2026-12-31T00:00:00.000Z" } });
     records.push(transitioned("to-p4", "P3", "P4", ["task_list", "task_definition"], "review-p3", ["decision-p3"]));
     const verifiedRecordIds = records.filter((item) => item.kind === "artifact.submitted").map((item) => item.recordId);
-    const state = evaluateProject(records, process, policySha256, { commit: artifactCommit, verifiedRecordIds });
+    const state = evaluateProject(records, process, policySha256, { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds,
+      currentRecordIds: verifiedRecordIds });
     expect(state.phase).toBe("P4");
     expect(state.canTransition).toBe(false);
     expect(state.missing).toContain("check:G1/build:unimplemented");
     expect(state.missing).toContain("check:G4/evidence_pack:unimplemented");
     expect(state.missing).toContain("check:G3/scope_judge:unimplemented");
+  });
+
+  it("blocks a later phase when a passed artifact changed, but accepts unrelated edits", () => {
+    const records = p1ReadyRecords();
+    records.push(transitioned("to-p2", "P1", "P2", ["req", "flow"], "review", ["decision"]));
+    for (const id of ["design_spec", "adr", "working_prototype", "properties"]) records.push(submitted(id, "P2", id));
+    records.push({ schemaVersion: 1, recordId: "review-p2", projectId: "sample", kind: "phase.review_requested",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { phase: "P2", generation: 0,
+        artifactRecordIds: ["design_spec", "adr", "working_prototype", "properties"], policySha256 } });
+    records.push({ schemaVersion: 1, recordId: "decision-p2", projectId: "sample", kind: "gate.local_decision",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { gateId: "design_review", phase: "P2", generation: 0,
+        reviewRecordId: "review-p2", outcome: "approved", simulated: true, role: "architect", reason: "合成",
+        expiresAt: "2026-12-31T00:00:00.000Z" } });
+    const allIds = records.filter((item) => item.kind === "artifact.submitted").map((item) => item.recordId);
+    const unrelated = { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds: allIds, currentRecordIds: allIds };
+    expect(evaluateProject(records, process, policySha256, unrelated).canTransition).toBe(true);
+    const changedRequirement = { ...unrelated, currentRecordIds: allIds.filter((id) => id !== "req") };
+    const blocked = evaluateProject(records, process, policySha256, changedRequirement);
+    expect(blocked.canTransition).toBe(false);
+    expect(blocked.missing).toContain("passed-artifact:req:changed");
+    records.push({ schemaVersion: 1, recordId: "reopen-p1", projectId: "sample", kind: "phase.reopened",
+      recordedAt: "2026-09-27T13:00:00.000Z", payload: { phase: "P1", generation: 1, reason: "要求の変更" } });
+    const changedConstitution = { ...unrelated, currentRecordIds: allIds.filter((id) => id !== "constitution") };
+    const reopened = evaluateProject(records, process, policySha256, changedConstitution);
+    expect(reopened.missing).toContain("passed-artifact:constitution:changed");
+  });
+
+  it("rejects project creation without bound target and process identifiers", () => {
+    for (const field of ["targetRepoId", "targetCommit", "processCommit", "fixtureId"]) {
+      const invalid = structuredClone(created);
+      delete /** @type {Record<string, unknown>} */ (invalid.payload)[field];
+      expect(() => evaluateProject([invalid], process, policySha256, snapshot)).toThrow(/案件|作成|対象|process/);
+    }
+    const wrongProcess = structuredClone(created);
+    wrongProcess.payload.processCommit = "a".repeat(40);
+    expect(() => evaluateProject([wrongProcess], process, policySha256, snapshot)).toThrow(/process|版/);
+    const absoluteRepo = structuredClone(created);
+    absoluteRepo.payload.targetRepoId = "/tmp/private-path";
+    expect(() => evaluateProject([absoluteRepo], process, policySha256, snapshot)).toThrow(/repo|対象/);
   });
 });
