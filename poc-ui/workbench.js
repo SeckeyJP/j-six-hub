@@ -45,7 +45,7 @@ function form(title, buttonText, submit) {
   const button = element("button", buttonText); button.type = "submit";
   node.addEventListener("submit", async (event) => {
     event.preventDefault(); button.disabled = true;
-    try { await submit(new FormData(node)); await refresh(); showStatus(`${buttonText}を記録しました`); }
+    try { await submit(new FormData(node)); await refresh(); showStatus("Git台帳に操作を記録しました"); }
     catch (error) { showStatus(error.message, true); }
     finally { button.disabled = false; }
   });
@@ -89,9 +89,24 @@ function renderMonitor() {
       element("p", `世代 ${project.generation} · ${project.canTransition ? "次へ進行可能" : "保留中"}`),
       element("p", "判断はローカル模擬。実顧客承認ではありません。"));
     const list = element("ul");
-    for (const reason of project.missing) append(list, element("li", reason, "blocked"));
+    for (const reason of project.missing) append(list, element("li", explainMissing(reason, project), "blocked"));
     append(card, list); append(root, card);
   }
+}
+
+function explainMissing(reason, project) {
+  if (reason.startsWith("artifact:")) {
+    const id = reason.split(":")[1];
+    const name = project.requiredArtifacts.find((item) => item.id === id)?.name ?? id;
+    return `提出が必要: ${name} (${id})`;
+  }
+  if (reason.startsWith("review:")) return `審査要求が必要 (${reason.slice(7)})`;
+  if (reason.startsWith("decision:")) return `有効なローカル模擬判断が必要 (${reason.slice(9)})`;
+  if (reason.startsWith("check:") && reason.endsWith(":unimplemented")) {
+    return `検査が未実装: ${reason.slice(6, -14)}`;
+  }
+  if (reason.startsWith("passed-artifact:")) return `過去Phaseの成果物が現在版で変わりました (${reason.slice(16)})`;
+  return reason;
 }
 
 function renderDetail() {
@@ -105,7 +120,7 @@ function renderDetail() {
     element("p", `方針hash: ${project.policySha256}`, "code"));
   const missingTitle = element("h3", "ゲートの不足・保留理由");
   const missing = element("ul");
-  if (project.missing.length) project.missing.forEach((reason) => append(missing, element("li", reason, "blocked")));
+  if (project.missing.length) project.missing.forEach((reason) => append(missing, element("li", explainMissing(reason, project), "blocked")));
   else append(missing, element("li", "現在の遷移条件が揃っています。"));
   append(root, missingTitle, missing);
   const unavailable = ["P4", "P5", "P6"].includes(project.phase);
@@ -146,12 +161,15 @@ function renderDetail() {
   }
   if (project.priorPhases.length) {
     const reopen = form("Phaseを差し戻す", "差戻しを記録", async (data) => {
-      const phase = data.get("phase");
-      if (!window.confirm(`${phase}へ戻し、後続の判断を失効させます。続けますか？`)) return;
-      await command("reopen", { ...common(project), phase, reason: data.get("reason") });
+      await command("reopen", { ...common(project), phase: data.get("phase"), reason: data.get("reason") });
     });
     select(reopen.node, "戻すPhase", "phase", project.priorPhases.map((item) => [item.id, `${item.id} ${item.name}`]));
     field(reopen.node, "差戻し理由", "reason");
+    const confirmLabel = element("label", "後続Phaseの判断が失効することを確認しました");
+    const confirmBox = element("input");
+    confirmBox.type = "checkbox"; confirmBox.required = true;
+    confirmLabel.prepend(confirmBox);
+    append(reopen.node, confirmLabel);
     reopen.button.className = "danger";
     append(reopen.node, reopen.button); append(root, reopen.node);
   }
