@@ -24,13 +24,17 @@ test("REQ-001 / PROP-001: bounded approval", () => {
   assert.equal(approve(12, 10), false);
 });
 `;
-const greenCode = `/** REQ-001 / PROP-001: approve a finite nonnegative amount within a finite limit. */
+const greenCode = `/** REQ-001 / PROP-001: approve a finite nonnegative amount within a finite limit.
+ * @param {number} amount @param {number} limit
+ */
 export function approve(amount, limit) {
   return Number.isFinite(amount) && Number.isFinite(limit) &&
     amount >= 0 && limit >= 0 && amount <= limit;
 }
 `;
-const refactorCode = `/** REQ-001 / PROP-001: approve a finite nonnegative amount within a finite limit. */
+const refactorCode = `/** REQ-001 / PROP-001: approve a finite nonnegative amount within a finite limit.
+ * @param {number} amount @param {number} limit
+ */
 export function approve(amount, limit) {
   const validNumbers = [amount, limit].every(Number.isFinite);
   return validNumbers && amount >= 0 && limit >= 0 && amount <= limit;
