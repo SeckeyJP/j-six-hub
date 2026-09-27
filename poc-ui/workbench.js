@@ -70,7 +70,7 @@ function renderProjects() {
   }
   const list = byId("projects"); list.replaceChildren();
   for (const project of listing.projects) {
-    const button = element("button", `${project.fixtureId} — ${project.phase} ${project.phaseName}`);
+    const button = element("button", `${project.fixtureId ?? "不明"} — ${project.phase ?? "保留"} ${project.phaseName}`);
     button.type = "button";
     button.addEventListener("click", async () => {
       selectedId = project.projectId; await refresh();
@@ -79,18 +79,59 @@ function renderProjects() {
   }
 }
 
+const activityState = { current: "現在有効", rejected: "却下", expired: "期限切れ",
+  superseded: "再提出・再審査で失効", invalidated: "差戻しで失効", historical: "過去の通過記録" };
+
+function renderActivity(project) {
+  const section = element("section");
+  append(section, element("h3", "審査・判断・差戻し履歴"));
+  if (!project.activity?.length) { append(section, element("p", "記録はありません。")); return section; }
+  const list = element("ol");
+  for (const item of project.activity) {
+    const row = element("li");
+    if (item.kind === "review") {
+      append(row, element("strong", `${item.phase} 審査要求 · ${activityState[item.state] ?? item.state}`),
+        element("p", `世代 ${item.generation} · 提出record ${item.artifactRecordIds.join(", ")}`, "code"),
+        element("p", `対象commit ${item.targetCommits.join(", ") || "不明"} · 方針hash ${item.policySha256}`, "code"));
+    } else if (item.kind === "decision") {
+      append(row, element("strong", `${item.phase} ローカル模擬判断 · ${item.outcome === "approved" ? "承認" : "却下"} · ${activityState[item.state] ?? item.state}`),
+        element("p", `役割 ${item.role} · 理由 ${item.reason}`),
+        element("p", `審査record ${item.reviewRecordId} · 対象commit ${item.targetCommits.join(", ") || "不明"}`, "code"),
+        element("p", `期限 ${item.expiresAt} · 世代 ${item.generation}`));
+    } else if (item.kind === "reopen") {
+      append(row, element("strong", `${item.from} → ${item.to} 差戻し`),
+        element("p", `理由 ${item.reason} · 新世代 ${item.generation}`),
+        element("p", `失効範囲 ${item.invalidatedPhases.join("、")}`));
+    } else if (item.kind === "transition") {
+      append(row, element("strong", `${item.from} → ${item.to} 遷移${item.state === "invalidated" ? " · 差戻しで失効" : ""}`),
+        element("p", `対象commit ${item.targetCommit} · 世代 ${item.generation}`, "code"));
+    }
+    append(row, element("small", `${item.recordedAt} · record ${item.recordId}`));
+    append(list, row);
+  }
+  append(section, list);
+  return section;
+}
+
 function renderMonitor() {
   const root = byId("monitor-list"); root.replaceChildren();
   if (!listing.projects.length) root.append(element("p", "案件はありません。"));
   for (const project of listing.projects) {
     const card = element("article");
-    append(card, element("h3", `${project.fixtureId} · ${project.phase} ${project.phaseName}`),
+    append(card, element("h3", `${project.fixtureId ?? "不明"} · ${project.phase ?? "保留"} ${project.phaseName}`),
       element("p", `案件ID: ${project.projectId}`, "code"),
-      element("p", `世代 ${project.generation} · ${project.canTransition ? "次へ進行可能" : "保留中"}`),
+      element("p", `世代 ${project.generation ?? "不明"} · ${project.canTransition ? "次へ進行可能" : "保留中"}`),
       element("p", "判断はローカル模擬。実顧客承認ではありません。"));
+    if (!project.verified) append(card, element("p", project.holdReason, "warning"));
     const list = element("ul");
     for (const reason of project.missing) append(list, element("li", explainMissing(reason, project), "blocked"));
-    append(card, list); append(root, card);
+    append(card, list);
+    if (project.activity?.length) {
+      const history = element("details");
+      append(history, element("summary", "判断・差戻し履歴を表示"), renderActivity(project));
+      append(card, history);
+    }
+    append(root, card);
   }
 }
 
@@ -106,6 +147,7 @@ function explainMissing(reason, project) {
     return `検査が未実装: ${reason.slice(6, -14)}`;
   }
   if (reason.startsWith("passed-artifact:")) return `過去Phaseの成果物が現在版で変わりました (${reason.slice(16)})`;
+  if (reason === "target:verification-unknown") return "対象Git・工程照合が不明です。操作を保留しています。";
   return reason;
 }
 
@@ -113,6 +155,10 @@ function renderDetail() {
   const root = byId("detail"); root.replaceChildren();
   if (!detail) { root.append(element("p", "案件を選んでください。")); return; }
   const project = detail.project;
+  if (!project.verified) {
+    append(root, element("h3", "照合不能のため保留"), element("p", project.holdReason, "warning"));
+    return;
+  }
   append(root, element("h3", `${project.phase} ${project.phaseName}`),
     element("p", `次: ${project.nextPhase || "最終Phase"} · 世代 ${project.generation}`),
     element("p", `対象commit: ${project.targetCommit}`, "code"),
@@ -123,6 +169,7 @@ function renderDetail() {
   if (project.missing.length) project.missing.forEach((reason) => append(missing, element("li", explainMissing(reason, project), "blocked")));
   else append(missing, element("li", "現在の遷移条件が揃っています。"));
   append(root, missingTitle, missing);
+  append(root, renderActivity(project));
   const unavailable = ["P4", "P5", "P6"].includes(project.phase);
   if (unavailable) {
     append(root, element("p", "このPhaseのCLI・実検査・納品判定は後続段階で実装します。現在は操作できません。", "warning"));
@@ -178,7 +225,9 @@ function renderDetail() {
 async function refresh() {
   try {
     listing = await api("/api/projects");
-    detail = selectedId ? await api(`/api/projects/${selectedId}`) : null;
+    const selected = listing.projects.find((project) => project.projectId === selectedId);
+    detail = !selectedId ? null : selected?.verified ? await api(`/api/projects/${selectedId}`) :
+      selected ? { head: listing.head, project: selected } : null;
     renderProjects(); renderMonitor(); renderDetail();
     showStatus("Git台帳と対象commitを再読込しました");
   } catch (error) { showStatus(error.message, true); }
@@ -188,6 +237,7 @@ byId("create").addEventListener("click", async () => {
   const fixtureId = byId("fixture").value;
   const fixture = listing.fixtures.find((item) => item.fixtureId === fixtureId);
   try {
+    if (!fixture?.verified) throw new Error("fixtureのGit HEADを照合できません。案件作成を保留します");
     const result = await api("/api/projects", { fixtureId, expectedHead: listing.head,
       targetCommit: fixture.targetCommit, policySha256: listing.policySha256 });
     selectedId = result.project.projectId; await refresh();

@@ -46,6 +46,80 @@ function requireText(value, name) {
   return value.trim();
 }
 
+/** Show only reviewed fields from the ledger, never arbitrary payloads.
+ * @param {any[]} records @param {any} projection @param {any} process @returns {any[]}
+ */
+function activityFor(records, projection, process) {
+  const phases = process.phases.map((/** @type {any} */ phase) => phase.id);
+  const reviews = new Map(records.filter((item) => item.kind === "phase.review_requested")
+    .map((item) => [item.recordId, item]));
+  const submissions = new Map(records.filter((item) => item.kind === "artifact.submitted")
+    .map((item) => [item.recordId, item]));
+  const latestReview = latest(records, "phase.review_requested", projection.phase, projection.generation);
+  let replayPhase = phases[0];
+  const activity = /** @type {any[]} */ (records.map((record) => {
+    const payload = record.payload ?? {};
+    const base = { recordId: record.recordId, recordedAt: record.recordedAt };
+    if (record.kind === "phase.transitioned") {
+      replayPhase = payload.to;
+      return [{ ...base, kind: "transition", from: payload.from, to: payload.to,
+        generation: payload.generation, targetCommit: payload.subjectCommit }];
+    }
+    if (record.kind === "phase.reopened") {
+      const from = replayPhase;
+      replayPhase = payload.phase;
+      return [{ ...base, kind: "reopen", from, to: payload.phase,
+        generation: payload.generation, reason: payload.reason,
+        invalidatedPhases: phases.slice(phases.indexOf(payload.phase), phases.indexOf(from) + 1) }];
+    }
+    if (record.kind === "phase.review_requested") {
+      const targetCommits = [...new Set((payload.artifactRecordIds ?? [])
+        .map((/** @type {string} */ id) => submissions.get(id)?.payload?.targetCommit).filter(Boolean))];
+      const state = payload.phase !== projection.phase ? "historical" :
+          record.recordId === latestReview?.recordId && !projection.missing.includes(`review:${payload.phase}`) ? "current" : "superseded";
+      return [{ ...base, kind: "review", phase: payload.phase, generation: payload.generation,
+        artifactRecordIds: payload.artifactRecordIds, targetCommits,
+        policySha256: payload.policySha256, state }];
+    }
+    if (record.kind === "gate.local_decision") {
+      const review = reviews.get(payload.reviewRecordId);
+      const latestDecision = [...records].reverse().find((item) => item.kind === "gate.local_decision" &&
+        item.payload?.reviewRecordId === payload.reviewRecordId);
+      const state = payload.phase !== projection.phase ? "historical" :
+          payload.reviewRecordId !== latestReview?.recordId || record.recordId !== latestDecision?.recordId ||
+          projection.missing.includes(`review:${payload.phase}`) ? "superseded" :
+            payload.outcome === "rejected" ? "rejected" :
+              Date.parse(payload.expiresAt) <= Date.now() ? "expired" : "current";
+      return [{ ...base, kind: "decision", phase: payload.phase, generation: payload.generation,
+        gateId: payload.gateId, reviewRecordId: payload.reviewRecordId,
+        targetCommits: review ? [...new Set((review.payload.artifactRecordIds ?? [])
+          .map((/** @type {string} */ id) => submissions.get(id)?.payload?.targetCommit).filter(Boolean))] : [],
+        role: payload.role, outcome: payload.outcome, simulated: true,
+        reason: payload.reason, expiresAt: payload.expiresAt, state }];
+    }
+    return [];
+  }).flat());
+  for (const [index, item] of activity.entries()) {
+    if (!["review", "decision", "transition"].includes(item.kind)) continue;
+    const affectedPhase = item.kind === "transition" ? item.from : item.phase;
+    if (activity.slice(index + 1).some((later) => later.kind === "reopen" &&
+      later.invalidatedPhases.includes(affectedPhase))) item.state = "invalidated";
+  }
+  return activity;
+}
+
+/** A project-specific verification failure must not hide healthy projects.
+ * @param {any[]} records @param {string} projectId
+ */
+function heldProject(records, projectId) {
+  const created = recordsFor(records, projectId)[0];
+  return { projectId, fixtureId: created?.kind === "project.created" ? created.payload.fixtureId : null,
+    phase: null, phaseName: "Git・工程照合不能", generation: null, verified: false,
+    canTransition: false, missing: ["target:verification-unknown"],
+    holdReason: "対象Gitまたは工程記録を照合できません。fixture、HEAD、基準commit系列を確認してください。",
+    simulated: true };
+}
+
 /** @param {any} config @param {any[]} records @param {string} projectId */
 function currentProjection(config, records, projectId) {
   const projectRecords = recordsFor(records, projectId);
@@ -66,7 +140,7 @@ function currentProjection(config, records, projectId) {
   return { projectId, fixtureId: created.payload.fixtureId, targetRepoId: fixture.repoId,
     targetCommit, baseCommit: created.payload.targetCommit, policySha256: localPolicySha256,
     processSha256: created.payload.processSha256, phase: projection.phase,
-    phaseName: phaseDefinition.name, generation: projection.generation,
+    phaseName: phaseDefinition.name, generation: projection.generation, verified: true,
     nextPhase: projection.nextPhase, gate: projection.gate,
     approverRoles: /** @type {any[]} */ (gateDefinition?.layers ?? []).flatMap((layer) => layer.checks)
       .filter((check) => check.kind === "human_approval")
@@ -77,6 +151,7 @@ function currentProjection(config, records, projectId) {
       name: /** @type {any[]} */ (config.process.artifacts).find((item) => item.id === artifactId)?.name ?? artifactId })),
     canTransition: projection.canTransition && writablePhases.has(projection.phase),
     missing: projection.missing, artifacts, simulated: true,
+    activity: activityFor(projectRecords, projection, config.process),
     invalidRecords: snapshot.invalidRecords.map((item) => ({ recordId: item.recordId, reason: item.reason })) };
 }
 
@@ -105,8 +180,13 @@ export function createPocService(config) {
     const ids = [...new Set(state.records.map((item) => item.projectId))];
     return { head: state.head, policySha256: localPolicySha256,
       fixtures: fixtures.map(([fixtureId, fixture]) => ({
-      fixtureId, repoId: fixture.repoId, targetCommit: head(fixture.repo),
-    })), projects: ids.map((id) => currentProjection(config, state.records, id)) };
+      fixtureId, repoId: fixture.repoId,
+      ...(() => { try { return { targetCommit: head(fixture.repo), verified: true }; }
+        catch { return { targetCommit: null, verified: false }; } })(),
+    })), projects: ids.map((id) => {
+      try { return currentProjection(config, state.records, id); }
+      catch { return heldProject(state.records, id); }
+    }) };
   }
 
   /** @param {string} projectId */

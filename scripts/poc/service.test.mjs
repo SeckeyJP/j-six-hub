@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPocService } from "./service.mjs";
@@ -11,7 +11,7 @@ import { localPolicySha256 } from "./policy.mjs";
 const processDefinition = JSON.parse(readFileSync(join(process.cwd(), ".cache/process.json"), "utf8"));
 /** @type {string[]} */
 const roots = [];
-afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
+afterEach(async () => { vi.useRealTimers(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 /** @param {string} repo @param {string[]} args */
 function git(repo, args) {
@@ -113,6 +113,10 @@ describe("localhost service commands", () => {
       phase: "P3", reason: "Synthetic task revision" });
     expect(result.project.phase).toBe("P3");
     expect(result.project.generation).toBe(1);
+    expect(result.project.activity.filter((item) => item.kind === "decision" && item.phase === "P1")
+      .map((item) => item.state)).toEqual(["historical"]);
+    expect(result.project.activity.filter((item) => item.kind === "decision" && item.phase === "P3")
+      .map((item) => item.state)).toEqual(["invalidated"]);
   }, 60_000);
 
   it("rejects stale writes, foreign commits and invalid paths, then invalidates old decisions on reopen", async () => {
@@ -153,4 +157,92 @@ describe("localhost service commands", () => {
       artifactId: "requirement_spec", path: "invalid.md", sha256: hash(content["invalid.md"] ?? "") }))
       .rejects.toThrow(/構造/);
   });
+
+  it("projects rejection, expiry, resubmission and reopen reasons without arbitrary ledger payload", async () => {
+    const { service, commit, content, ledgerRoot, repo } = await fixture();
+    let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
+      expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
+    const id = result.project.projectId;
+    result = await service.execute({ type: "artifact.submit", ...common(result.head, id, 0, commit),
+      artifactId: "constitution", path: "constitution.md", sha256: hash(content["constitution.md"] ?? "") });
+    result = await service.execute({ type: "phase.transition", ...common(result.head, id, 0, commit) });
+    for (const [artifactId, path] of /** @type {[string,string][]} */ ([["requirement_spec", "requirement.md"], ["business_flow_prototype", "flow.md"]])) {
+      result = await service.execute({ type: "artifact.submit", ...common(result.head, id, 0, commit),
+        artifactId, path, sha256: hash(content[path] ?? "") });
+    }
+    result = await service.execute({ type: "review.request", ...common(result.head, id, 0, commit) });
+    const reviewId = [...result.project.activity].reverse().find((item) => item.kind === "review")?.recordId;
+    result = await service.execute({ type: "decision.record", ...common(result.head, id, 0, commit),
+      outcome: "rejected", role: "customer", reason: "REQ-001を見直す", expiresAt: "2099-01-01T00:00:00.000Z" });
+    expect([...result.project.activity].reverse().find((item) => item.kind === "decision")).toMatchObject({
+      reviewRecordId: reviewId, outcome: "rejected", role: "customer", reason: "REQ-001を見直す",
+      state: "rejected", targetCommits: [commit], simulated: true,
+    });
+    expect(result.project.canTransition).toBe(false);
+    const clockStart = Date.now() + 60_000;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(clockStart));
+    result = await service.execute({ type: "decision.record", ...common(result.head, id, 0, commit),
+      outcome: "approved", role: "customer", reason: "修正を確認", expiresAt: new Date(clockStart + 60_000).toISOString() });
+    expect(result.project.activity.filter((item) => item.kind === "decision").map((item) => item.state))
+      .toEqual(["superseded", "current"]);
+    vi.setSystemTime(new Date(clockStart + 120_000));
+    let restored = createPocService({ ledgerRoot, process: processDefinition, fixtures: { synthetic: { repo, repoId: "synthetic" } } });
+    expect([...(await restored.detail(id)).project.activity].reverse().find((item) => item.kind === "decision")?.state).toBe("expired");
+    expect((await restored.detail(id)).project.canTransition).toBe(false);
+    result = await restored.execute({ type: "artifact.submit", ...common(result.head, id, 0, commit),
+      artifactId: "requirement_spec", path: "requirement.md", sha256: hash(content["requirement.md"] ?? "") });
+    expect([...result.project.activity].reverse().find((item) => item.kind === "review")?.state).toBe("superseded");
+    result = await restored.execute({ type: "phase.reopen", ...common(result.head, id, 0, commit),
+      phase: "P0", reason: "条件変更のため再合意" });
+    const activity = result.project.activity;
+    expect([...activity].reverse().find((item) => item.kind === "reopen")).toMatchObject({
+      from: "P1", to: "P0", reason: "条件変更のため再合意", invalidatedPhases: ["P0", "P1"],
+    });
+    expect(activity.filter((item) => item.kind === "decision").every((item) => item.state === "invalidated")).toBe(true);
+    restored = createPocService({ ledgerRoot, process: processDefinition, fixtures: { synthetic: { repo, repoId: "synthetic" } } });
+    expect((await restored.detail(id)).project.activity).toEqual(activity);
+    expect(JSON.stringify(activity)).not.toContain("/var/");
+  }, 60_000);
+
+  it("holds only the project whose Git ancestry is unknown while listing healthy projects", async () => {
+    const { repo, ledgerRoot, commit, content } = await fixture();
+    const betaRepo = join(ledgerRoot, "beta-fixture");
+    await mkdir(betaRepo, { recursive: true });
+    git(betaRepo, ["init", "-q"]);
+    await writeFile(join(betaRepo, "constitution.md"), content["constitution.md"] ?? "");
+    git(betaRepo, ["add", "."]); git(betaRepo, ["commit", "-qm", "beta baseline"]);
+    const betaCommit = git(betaRepo, ["rev-parse", "HEAD"]);
+    const service = createPocService({ ledgerRoot, process: processDefinition, fixtures: {
+      synthetic: { repo, repoId: "synthetic" }, beta: { repo: betaRepo, repoId: "beta" },
+    } });
+    await service.initialize();
+    let alpha = await service.execute({ type: "project.create", fixtureId: "synthetic",
+      expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
+    const alphaId = alpha.project.projectId;
+    alpha = await service.execute({ type: "artifact.submit", ...common(alpha.head, alphaId, 0, commit),
+      artifactId: "constitution", path: "constitution.md", sha256: hash(content["constitution.md"] ?? "") });
+    alpha = await service.execute({ type: "phase.transition", ...common(alpha.head, alphaId, 0, commit) });
+    alpha = await service.execute({ type: "phase.reopen", ...common(alpha.head, alphaId, 0, commit),
+      phase: "P0", reason: "再提出" });
+    const beta = await service.execute({ type: "project.create", fixtureId: "beta",
+      expectedHead: alpha.head, targetCommit: betaCommit, policySha256: localPolicySha256 });
+    git(repo, ["checkout", "--orphan", "unrelated"]);
+    git(repo, ["commit", "-qm", "unrelated root"]);
+    const listing = await service.list();
+    expect(listing.projects.find((item) => item.projectId === alphaId)).toMatchObject({
+      verified: false, phase: null, canTransition: false,
+      missing: ["target:verification-unknown"],
+    });
+    expect(listing.projects.find((item) => item.projectId === beta.project.projectId)).toMatchObject({
+      verified: true, phase: "P0", targetCommit: betaCommit,
+    });
+    expect(listing.fixtures.find((item) => item.fixtureId === "beta")?.verified).toBe(true);
+    await expect(service.execute({ type: "phase.transition", ...common(beta.head, alphaId, 1,
+      git(repo, ["rev-parse", "HEAD"])) })).rejects.toThrow(/基準commit|系列/);
+    await rm(repo, { recursive: true, force: true });
+    const missingRepo = await service.list();
+    expect(missingRepo.fixtures.find((item) => item.fixtureId === "synthetic")?.verified).toBe(false);
+    expect(missingRepo.projects.find((item) => item.projectId === beta.project.projectId)?.verified).toBe(true);
+  }, 60_000);
 });

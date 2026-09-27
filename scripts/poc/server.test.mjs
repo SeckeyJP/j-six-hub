@@ -64,6 +64,12 @@ describe("local-only HTTP boundary", () => {
     expect(badHost).toBe(403);
     expect((await fetch(`${url}/api/projects`, { method: "POST",
       headers: { ...baseHeaders, "X-CSRF-Token": csrf, "Content-Type": "text/plain" }, body })).status).toBe(400);
+    const oversized = JSON.stringify({ padding: "x".repeat(65 * 1024) });
+    expect((await fetch(`${url}/api/projects`, { method: "POST",
+      headers: { ...baseHeaders, "X-CSRF-Token": csrf }, body: oversized })).status).toBe(400);
+    expect((await fetch(`${url}/api/unknown`, { method: "POST",
+      headers: { ...baseHeaders, "X-CSRF-Token": csrf }, body: "{}" })).status).toBe(404);
+    expect((await fetch(`${url}/api/projects`, { method: "PUT", headers: baseHeaders, body })).status).toBe(404);
     const created = await fetch(`${url}/api/projects`, { method: "POST",
       headers: { ...baseHeaders, "X-CSRF-Token": csrf }, body });
     expect(created.status).toBe(200);
