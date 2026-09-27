@@ -6,7 +6,7 @@ J-SIX Hub は、[J-SIX](https://github.com/SeckeyJP/j-six) の工程（Phase・�
 
 本リポジトリは、この構想を説明するための **リプレイ型サンプル** です。J-SIX を実際に回した記録を、Hub の管理画面として時系列に再生します。
 
-この公開リプレイとは別に、単一 PC で Hub が Codex／Claude Code CLI の一方を起動する中央実行型 PoC を段階的に構築しています。開発者が合成案件を J-SIX の Phase 0〜6 まで進めるローカルのワークベンチと、同じ記録を見る中央監視画面を構想しています。[単一runの要求](docs/specs/local-execution-requirement-spec.md)・[設計](docs/specs/local-execution-design-spec.md)・[ADR](docs/adr/0007-local-execution-poc.md)と、[全工程の要求](docs/specs/developer-journey-requirement-spec.md)・[設計](docs/specs/developer-journey-design-spec.md)・[ADR](docs/adr/0008-developer-workbench.md)に基づき、現時点では**工程判定・Git台帳・成果物照合のみ**を実装しています。CLI・ローカルAPI・画面・Phase 0〜6一巡はまだ利用できません。公開ページが AI を動かすようになったわけではなく、企業の実案件への適用も対象外です。
+この公開リプレイとは別に、単一 PC の中央実行型 PoC を段階的に構築しています。[単一runの要求](docs/specs/local-execution-requirement-spec.md)・[設計](docs/specs/local-execution-design-spec.md)・[ADR](docs/adr/0007-local-execution-poc.md)と、[全工程の要求](docs/specs/developer-journey-requirement-spec.md)・[設計](docs/specs/developer-journey-design-spec.md)・[ADR](docs/adr/0008-developer-workbench.md)に基づき、固定process・非公開Git台帳・成果物照合と、**Phase 0〜3のlocalhost開発者画面／中央監視／書込API**を実装しています。Phase 4のCodex／Claude Code CLI、実検査、Phase 5〜6の完了操作と全工程一巡は未実装です。公開ページは引き続きAIを動かさず、企業の実案件への適用も対象外です。
 
 **公開ページ**: https://seckeyjp.github.io/j-six-hub/ （初回はガイドツアーが始まります。上部の「ガイド」でいつでも開き直せます）
 
@@ -40,9 +40,23 @@ J-SIX Hub は、[J-SIX](https://github.com/SeckeyJP/j-six) の工程（Phase・�
 npm ci
 npm run dev        # 開発サーバー
 npm test           # テスト
-npm run poc:test   # ローカルPoCの工程判定・Git台帳・成果物照合のテスト
+npm run poc:test   # ローカルPoCの工程・台帳・API境界のテスト
 npm run build      # dist/ に出力
 ```
+
+## ローカル開発者ワークベンチ（合成案件のみ）
+
+Node 22以上とGitを使用します。初回に次を実行します。`.local-poc/` はGit除外のローカル保存先で、`poc:init` は既存の保存先を上書きしません。
+
+```bash
+npm ci
+npm run poc:init
+npm run poc:dev -- --config .local-poc/config.json
+```
+
+表示された `http://127.0.0.1:<port>` を開きます。案件作成後、外部エディタで `.local-poc/synthetic-project` の成果物を作成・コミットし、ブラウザへGit commit内の相対pathとファイル内容SHA-256を提出します。例えば `git -C .local-poc/synthetic-project show HEAD:CLAUDE.md | shasum -a 256` でP0のhashを確認できます。各Phaseの必要な成果物と不足理由は画面に表示します。審査・判断は**単一利用者のローカル模擬**です。判断の対象commit、世代、台帳refを確認して進めてください。
+
+非公開台帳と合成repoは `.local-poc/` 内で分離され、サーバーは127.0.0.1だけにbindします。対象repoは設定済みのfixture IDから選び、ブラウザから任意のディレクトリを指定できません。P3からP4までは進めますが、P4のCLI・品質ゲートが未実装のため、そこで停止します。既存のリプレイ画面とデータはこのローカル画面には接続しません。
 
 Phase・ゲートの定義は、ビルド時に J-SIX のプロセス定義（固定commit `1101258e5aec249273fcc5d546db0341d456e1be`）を取得し、`process.lock.json` のハッシュと照合してから使います。技術スタックは [ADR-0002](docs/adr/0002-web-app-stack.md)、台帳形式は [ADR-0009](docs/adr/0009-local-git-ledger.md)、要求と設計は [`docs/specs/`](docs/specs/) にあります。
 
