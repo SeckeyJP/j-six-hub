@@ -6,7 +6,7 @@ J-SIX Hub は、[J-SIX](https://github.com/SeckeyJP/j-six) の工程（Phase・�
 
 本リポジトリは、この構想を説明するための **リプレイ型サンプル** です。J-SIX を実際に回した記録を、Hub の管理画面として時系列に再生します。
 
-この公開リプレイとは別に、単一 PC で Hub が Codex／Claude Code CLI の一方を起動する中央実行型 PoC を設計中です。さらに、開発者が合成案件を J-SIX の Phase 0〜6 まで進めるローカルのワークベンチと、同じ記録を見る中央監視画面を構想しています。[単一runの要求](docs/specs/local-execution-requirement-spec.md)・[設計](docs/specs/local-execution-design-spec.md)・[ADR](docs/adr/0007-local-execution-poc.md)と、[全工程の要求](docs/specs/developer-journey-requirement-spec.md)・[設計](docs/specs/developer-journey-design-spec.md)・[ADR](docs/adr/0008-developer-workbench.md)は、いずれも**未実装の設計**です。公開ページが AI を動かすようになったわけではなく、企業の実案件への適用も対象外です。
+この公開リプレイとは別に、単一 PC で Hub が Codex／Claude Code CLI の一方を起動する中央実行型 PoC を段階的に構築しています。開発者が合成案件を J-SIX の Phase 0〜6 まで進めるローカルのワークベンチと、同じ記録を見る中央監視画面を構想しています。[単一runの要求](docs/specs/local-execution-requirement-spec.md)・[設計](docs/specs/local-execution-design-spec.md)・[ADR](docs/adr/0007-local-execution-poc.md)と、[全工程の要求](docs/specs/developer-journey-requirement-spec.md)・[設計](docs/specs/developer-journey-design-spec.md)・[ADR](docs/adr/0008-developer-workbench.md)に基づき、現時点では**工程判定・Git台帳・成果物照合のみ**を実装しています。CLI・ローカルAPI・画面・Phase 0〜6一巡はまだ利用できません。公開ページが AI を動かすようになったわけではなく、企業の実案件への適用も対象外です。
 
 **公開ページ**: https://seckeyjp.github.io/j-six-hub/ （初回はガイドツアーが始まります。上部の「ガイド」でいつでも開き直せます）
 
@@ -40,10 +40,11 @@ J-SIX Hub は、[J-SIX](https://github.com/SeckeyJP/j-six) の工程（Phase・�
 npm ci
 npm run dev        # 開発サーバー
 npm test           # テスト
+npm run poc:test   # ローカルPoCの工程判定・Git台帳・成果物照合のテスト
 npm run build      # dist/ に出力
 ```
 
-Phase・ゲートの定義は、ビルド時に J-SIX のプロセス定義（タグ `process-v0.1.0`）を取得し、`process.lock.json` のハッシュと照合してから使います。技術スタックは [ADR-0002](docs/adr/0002-web-app-stack.md)、要求と設計は [`docs/specs/`](docs/specs/) にあります。
+Phase・ゲートの定義は、ビルド時に J-SIX のプロセス定義（固定commit `1101258e5aec249273fcc5d546db0341d456e1be`）を取得し、`process.lock.json` のハッシュと照合してから使います。技術スタックは [ADR-0002](docs/adr/0002-web-app-stack.md)、台帳形式は [ADR-0009](docs/adr/0009-local-git-ledger.md)、要求と設計は [`docs/specs/`](docs/specs/) にあります。
 
 ## ライセンス
 

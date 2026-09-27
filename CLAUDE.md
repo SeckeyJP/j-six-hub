@@ -3,13 +3,13 @@
 > このファイルは Claude Code がセッション開始時に自動読込するプロジェクト憲法です。
 > J-SIX (Japanese SI Transformation) プロセスに基づいています。
 > J-SIX の `templates/claude-md/base.md` と `web-app.md` から作成しました。
-> Hub 自体を J-SIX で開発し、その記録をケーススタディにします（J-SIX `docs/control-plane/` の ADR を参照）。現行の公開物はリプレイ型サンプルです。別に、単一 PC の中央実行型 PoC と開発者が Phase 0〜6 を進めるローカル画面を設計していますが、まだ実装していません。
+> Hub 自体を J-SIX で開発し、その記録をケーススタディにします（J-SIX `docs/control-plane/` の ADR を参照）。現行の公開物はリプレイ型サンプルです。別に単一 PC の中央実行型 PoC を段階実装中で、工程判定・Git台帳・成果物照合のみ存在します。開発者画面と実CLIは未実装です。
 
 ---
 
 ## プロジェクト概要
 
-- **システム名**: J-SIX Hub（公開リプレイ型サンプル／未実装の単一 PC 中央実行・全工程 PoC）
+- **システム名**: J-SIX Hub（公開リプレイ型サンプル／一部実装中の単一 PC 中央実行・全工程 PoC）
 - **目的**: 公開リプレイは J-SIX 実行記録を再生して構想を説明する。単一 PC PoC は、開発者が合成案件を Phase 0〜6 まで進め、Hub が成果物・ゲート・AI 投入と受入れを管理する設計を検証する
 - **主要ステークホルダー**: 著者（H.Sekita / GitHub: SeckeyJP）、記事・論文の読者
 - **開発体制**: 著者1名 + AI 開発支援。PoC の作業 CLI は run ごとに Codex／Claude Code の一方を選ぶ
@@ -19,7 +19,7 @@
 ### 技術スタック
 
 - **公開リプレイの構成**: 静的 SPA、バックエンドなし、GitHub Pages で公開
-- **単一 PC PoC の構成**: ローカル制御プロセス、非公開 Git 記録先、作業用 worktree、CLI adapter、独立検査、localhost 開発者ワークベンチ・中央監視を設計中。公開 Pages に実行機能を載せない
+- **単一 PC PoC の構成**: Node工程判定、非公開Git台帳、Git成果物照合を実装。作業用worktree、CLI adapter、独立検査、localhost開発者ワークベンチ・中央監視は設計段階。公開Pagesに実行機能を載せない
 - **言語・フレームワーク・テストツール**: TypeScript 6.0 / React 19 / Vite 8 / Vitest + Testing Library（[ADR-0002](docs/adr/0002-web-app-stack.md)）
 - **DB**: リプレイはなし（`data/events.jsonl` を読み込む）。PoC の正本も非公開のローカル Git とし、別 DB 正本を作らない
 - **CI/CD**: GitHub Actions
@@ -53,10 +53,11 @@ npm test               # Vitest（事前に固定版のプロセス定義を取�
 npm run typecheck      # 型検査
 npm run lint           # ESLint
 npm run build          # dist/ に静的ファイルを出力
+npm run poc:test       # PoCの工程判定・Git台帳・成果物照合テスト
 ```
 
 > **重要**: テストは必ず実行して通ることを確認してからコミットすること。
-> 上記は現行リプレイのコマンド。単一 PC PoC の実行器と試験コマンドは未実装であり、専用 Spec と ADR のレビュー後に追加する。
+> `poc:test` は基礎モジュールの検証だけを行う。CLI実行器、書込API、開発者画面、全工程一巡のコマンドは未実装。
 
 ---
 
