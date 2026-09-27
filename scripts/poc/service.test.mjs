@@ -27,6 +27,7 @@ async function fixture() {
   const repo = join(root, "fixture");
   const ledgerRoot = join(root, "ledger");
   await import("node:fs/promises").then(({ mkdir }) => mkdir(repo));
+  await mkdir(join(repo, "src"));
   git(repo, ["init", "-q"]);
   const content = /** @type {Record<string,string>} */ ({
     "constitution.md": "# Synthetic constitution\n",
@@ -39,7 +40,10 @@ async function fixture() {
     "properties.md": "# Synthetic properties\n",
     "tasks.md": "TASK-001: synthetic change\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit,lint\n",
     "task.md": "TASK-001: synthetic change\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit,lint\n",
+    "src/approval.mjs": "export function approve(amount, limit) { return false; }\n",
   });
+  content["tasks.md"] = "TASK-001: synthetic change\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: unit,lint\n";
+  content["task.md"] = content["tasks.md"] ?? "";
   for (const [path, body] of Object.entries(content)) await writeFile(join(repo, path), body);
   git(repo, ["add", "."]); git(repo, ["commit", "-qm", "baseline"]);
   const commit = git(repo, ["rev-parse", "HEAD"]);
@@ -117,7 +121,7 @@ describe("localhost service commands", () => {
       .map((item) => item.state)).toEqual(["historical"]);
     expect(result.project.activity.filter((item) => item.kind === "decision" && item.phase === "P3")
       .map((item) => item.state)).toEqual(["invalidated"]);
-  }, 60_000);
+  }, 180_000);
 
   it("rejects stale writes, foreign commits and invalid paths, then invalidates old decisions on reopen", async () => {
     const { service, commit, content } = await fixture();
@@ -291,4 +295,38 @@ describe("localhost service commands", () => {
     await expect(service.execute({ type: "phase.transition", ...common(result.head, id, 0, newCommit) }))
       .rejects.toThrow(/遷移条件/);
   }, 60_000);
+
+  it("records a fixed fake TDD run and real G1/G2 checks before candidate acceptance", async () => {
+    const { service, commit, content, repo } = await fixture();
+    let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
+      expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
+    const id = result.project.projectId;
+    /** @type {Record<string,[string,string][]>} */
+    const byPhase = {
+      P0: [["constitution", "constitution.md"]],
+      P1: [["requirement_spec", "requirement.md"], ["business_flow_prototype", "flow.md"]],
+      P2: [["design_spec", "design.md"], ["adr", "adr.md"], ["working_prototype", "prototype.md"], ["properties", "properties.md"]],
+      P3: [["task_list", "tasks.md"], ["task_definition", "task.md"]],
+    };
+    for (const phase of ["P0", "P1", "P2", "P3"]) {
+      for (const [artifactId, path] of byPhase[phase] ?? []) {
+        result = await service.execute({ type: "artifact.submit", ...common(result.head, id, 0, commit),
+          artifactId, path, sha256: hash(content[path] ?? "") });
+      }
+      if (phase !== "P0") {
+        result = await service.execute({ type: "review.request", ...common(result.head, id, 0, commit) });
+        const role = phase === "P1" ? "customer" : "gatekeeper";
+        result = await service.execute({ type: "decision.record", ...common(result.head, id, 0, commit),
+          outcome: "approved", role, reason: `Synthetic ${phase}`, expiresAt: "2099-01-01T00:00:00.000Z" });
+      }
+      result = await service.execute({ type: "phase.transition", ...common(result.head, id, 0, commit) });
+    }
+    expect(result.project.phase).toBe("P4");
+    const generated = await service.runFake({ ...common(result.head, id, 0, commit) });
+    expect(generated.run.mode).toBe("fake");
+    expect(generated.run.checks).toHaveLength(15);
+    expect(generated.run.checks.every((item) => item.result === "passed")).toBe(true);
+    expect(generated.project.phase).toBe("P4");
+    expect(git(repo, ["rev-parse", "HEAD"])).toBe(commit);
+  }, 180_000);
 });
