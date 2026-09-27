@@ -80,7 +80,8 @@ function renderProjects() {
 }
 
 const activityState = { current: "現在有効", rejected: "却下", expired: "期限切れ",
-  superseded: "再提出・再審査で失効", invalidated: "差戻しで失効", historical: "過去の通過記録" };
+  superseded: "再提出・再審査で失効", invalidated: "差戻しで失効",
+  evidence_changed: "対象・方針変更で再確認待ち", historical: "過去の通過記録" };
 
 function renderActivity(project) {
   const section = element("section");
@@ -106,6 +107,8 @@ function renderActivity(project) {
       append(row, element("strong", `${item.from} → ${item.to} 遷移${item.state === "invalidated" ? " · 差戻しで失効" : ""}`),
         element("p", `対象commit ${item.targetCommit} · 世代 ${item.generation}`, "code"));
     }
+    if (item.statusReasons?.length) append(row, element("p",
+      `再確認理由: ${item.statusReasons.map((reason) => explainMissing(reason, project)).join("、")}`, "blocked"));
     append(row, element("small", `${item.recordedAt} · record ${item.recordId}`));
     append(list, row);
   }
@@ -148,6 +151,9 @@ function explainMissing(reason, project) {
   }
   if (reason.startsWith("passed-artifact:")) return `過去Phaseの成果物が現在版で変わりました (${reason.slice(16)})`;
   if (reason === "target:verification-unknown") return "対象Git・工程照合が不明です。操作を保留しています。";
+  if (reason === "target:commit-changed") return "対象Git commitが提出時から変わりました";
+  if (reason === "target:baseline-unverified") return "基準commitの系列を照合できません";
+  if (reason === "policy:changed") return "PoC方針版が変わりました";
   return reason;
 }
 

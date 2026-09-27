@@ -245,4 +245,50 @@ describe("localhost service commands", () => {
     expect(missingRepo.fixtures.find((item) => item.fixtureId === "synthetic")?.verified).toBe(false);
     expect(missingRepo.projects.find((item) => item.projectId === beta.project.projectId)?.verified).toBe(true);
   }, 60_000);
+
+  it("marks the current review and decision for recheck after a Git artifact changes or disappears", async () => {
+    const { service, repo, commit, content } = await fixture();
+    let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
+      expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
+    const id = result.project.projectId;
+    result = await service.execute({ type: "artifact.submit", ...common(result.head, id, 0, commit),
+      artifactId: "constitution", path: "constitution.md", sha256: hash(content["constitution.md"] ?? "") });
+    result = await service.execute({ type: "phase.transition", ...common(result.head, id, 0, commit) });
+    for (const [artifactId, path] of /** @type {[string,string][]} */ ([["requirement_spec", "requirement.md"], ["business_flow_prototype", "flow.md"]])) {
+      result = await service.execute({ type: "artifact.submit", ...common(result.head, id, 0, commit),
+        artifactId, path, sha256: hash(content[path] ?? "") });
+    }
+    result = await service.execute({ type: "review.request", ...common(result.head, id, 0, commit) });
+    result = await service.execute({ type: "decision.record", ...common(result.head, id, 0, commit),
+      outcome: "approved", role: "customer", reason: "合成要求を確認", expiresAt: "2099-01-01T00:00:00.000Z" });
+    expect(result.project.activity.filter((item) => ["review", "decision"].includes(item.kind)).map((item) => item.state))
+      .toEqual(["current", "current"]);
+    const changedBody = `${content["requirement.md"]}REQ-002: changed\n`;
+    await writeFile(join(repo, "requirement.md"), changedBody);
+    git(repo, ["add", "requirement.md"]); git(repo, ["commit", "-qm", "change requirement"]);
+    let changed = await service.detail(id);
+    expect(changed.project.canTransition).toBe(false);
+    expect(changed.project.activity.filter((item) => ["review", "decision"].includes(item.kind)))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ kind: "review", state: "evidence_changed",
+        statusReasons: expect.arrayContaining(["target:commit-changed"]) }),
+      expect.objectContaining({ kind: "decision", state: "evidence_changed" })]));
+    await rm(join(repo, "requirement.md"));
+    git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "remove requirement"]);
+    changed = await service.detail(id);
+    expect(changed.project.activity.filter((item) => item.kind === "decision").at(-1)?.state).toBe("evidence_changed");
+    await writeFile(join(repo, "requirement.md"), changedBody);
+    git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "restore requirement"]);
+    const newCommit = git(repo, ["rev-parse", "HEAD"]);
+    for (const [artifactId, path, body] of /** @type {[string,string,string][]} */ ([
+      ["requirement_spec", "requirement.md", changedBody],
+      ["business_flow_prototype", "flow.md", content["flow.md"] ?? ""],
+    ])) {
+      result = await service.execute({ type: "artifact.submit", ...common(result.head, id, 0, newCommit),
+        artifactId, path, sha256: hash(body) });
+    }
+    expect(result.project.activity.filter((item) => ["review", "decision"].includes(item.kind)).map((item) => item.state))
+      .toEqual(["superseded", "superseded"]);
+    await expect(service.execute({ type: "phase.transition", ...common(result.head, id, 0, newCommit) }))
+      .rejects.toThrow(/遷移条件/);
+  }, 60_000);
 });

@@ -56,6 +56,8 @@ function activityFor(records, projection, process) {
   const submissions = new Map(records.filter((item) => item.kind === "artifact.submitted")
     .map((item) => [item.recordId, item]));
   const latestReview = latest(records, "phase.review_requested", projection.phase, projection.generation);
+  const evidenceReasons = projection.missing.filter((/** @type {string} */ reason) =>
+    ["target:", "artifact:", "policy:", "passed-artifact:"].some((prefix) => reason.startsWith(prefix)));
   let replayPhase = phases[0];
   const activity = /** @type {any[]} */ (records.map((record) => {
     const payload = record.payload ?? {};
@@ -75,19 +77,23 @@ function activityFor(records, projection, process) {
     if (record.kind === "phase.review_requested") {
       const targetCommits = [...new Set((payload.artifactRecordIds ?? [])
         .map((/** @type {string} */ id) => submissions.get(id)?.payload?.targetCommit).filter(Boolean))];
+      const isLatest = record.recordId === latestReview?.recordId &&
+        !projection.missing.includes(`review:${payload.phase}`);
       const state = payload.phase !== projection.phase ? "historical" :
-          record.recordId === latestReview?.recordId && !projection.missing.includes(`review:${payload.phase}`) ? "current" : "superseded";
+        !isLatest ? "superseded" : evidenceReasons.length ? "evidence_changed" : "current";
       return [{ ...base, kind: "review", phase: payload.phase, generation: payload.generation,
         artifactRecordIds: payload.artifactRecordIds, targetCommits,
-        policySha256: payload.policySha256, state }];
+        policySha256: payload.policySha256, state,
+        statusReasons: state === "evidence_changed" ? evidenceReasons : [] }];
     }
     if (record.kind === "gate.local_decision") {
       const review = reviews.get(payload.reviewRecordId);
       const latestDecision = [...records].reverse().find((item) => item.kind === "gate.local_decision" &&
         item.payload?.reviewRecordId === payload.reviewRecordId);
+      const isLatest = payload.reviewRecordId === latestReview?.recordId &&
+        record.recordId === latestDecision?.recordId && !projection.missing.includes(`review:${payload.phase}`);
       const state = payload.phase !== projection.phase ? "historical" :
-          payload.reviewRecordId !== latestReview?.recordId || record.recordId !== latestDecision?.recordId ||
-          projection.missing.includes(`review:${payload.phase}`) ? "superseded" :
+        !isLatest ? "superseded" : evidenceReasons.length ? "evidence_changed" :
             payload.outcome === "rejected" ? "rejected" :
               Date.parse(payload.expiresAt) <= Date.now() ? "expired" : "current";
       return [{ ...base, kind: "decision", phase: payload.phase, generation: payload.generation,
@@ -95,7 +101,8 @@ function activityFor(records, projection, process) {
         targetCommits: review ? [...new Set((review.payload.artifactRecordIds ?? [])
           .map((/** @type {string} */ id) => submissions.get(id)?.payload?.targetCommit).filter(Boolean))] : [],
         role: payload.role, outcome: payload.outcome, simulated: true,
-        reason: payload.reason, expiresAt: payload.expiresAt, state }];
+        reason: payload.reason, expiresAt: payload.expiresAt, state,
+        statusReasons: state === "evidence_changed" ? evidenceReasons : [] }];
     }
     return [];
   }).flat());
