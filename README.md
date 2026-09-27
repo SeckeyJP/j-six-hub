@@ -6,6 +6,8 @@ J-SIX Hub は、[J-SIX](https://github.com/SeckeyJP/j-six) の工程（Phase・�
 
 本リポジトリは、この構想を説明するための **リプレイ型サンプル** です。J-SIX を実際に回した記録を、Hub の管理画面として時系列に再生します。
 
+この公開リプレイとは別に、単一 PC で Hub が Codex／Claude Code CLI の一方を起動する中央実行型 PoC を設計中です。[専用の要求 Spec](docs/specs/local-execution-requirement-spec.md)と[Design Spec](docs/specs/local-execution-design-spec.md)、[Hub 固有 ADR](docs/adr/0007-local-execution-poc.md)は**未実装の設計**です。公開ページが AI を動かすようになったわけではなく、企業の実案件への適用も対象外です。
+
 **公開ページ**: https://seckeyjp.github.io/j-six-hub/ （初回はガイドツアーが始まります。上部の「ガイド」でいつでも開き直せます）
 
 ## 案件
