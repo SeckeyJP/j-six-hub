@@ -36,7 +36,7 @@ const transitioned = (id, from, to, artifactRecordIds, reviewRecordId = null, de
 });
 
 const snapshot = { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds: ["constitution", "req", "flow", "req-v2"],
-  currentRecordIds: ["constitution", "req", "flow", "req-v2"] };
+  currentRecordIds: ["constitution", "req", "flow", "req-v2"], baseCommitVerified: true };
 
 /** @returns {any[]} */
 function p1ReadyRecords() {
@@ -238,7 +238,7 @@ describe("process projection", () => {
     records.push(transitioned("to-p4", "P3", "P4", ["task_list", "task_definition"], "review-p3", ["decision-p3"]));
     const verifiedRecordIds = records.filter((item) => item.kind === "artifact.submitted").map((item) => item.recordId);
     const state = evaluateProject(records, process, policySha256, { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds,
-      currentRecordIds: verifiedRecordIds });
+      currentRecordIds: verifiedRecordIds, baseCommitVerified: true });
     expect(state.phase).toBe("P4");
     expect(state.canTransition).toBe(false);
     expect(state.missing).toContain("check:G1/build:unimplemented");
@@ -258,7 +258,8 @@ describe("process projection", () => {
         reviewRecordId: "review-p2", outcome: "approved", simulated: true, role: "architect", reason: "合成",
         expiresAt: "2026-12-31T00:00:00.000Z" } });
     const allIds = records.filter((item) => item.kind === "artifact.submitted").map((item) => item.recordId);
-    const unrelated = { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds: allIds, currentRecordIds: allIds };
+    const unrelated = { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds: allIds,
+      currentRecordIds: allIds, baseCommitVerified: true };
     expect(evaluateProject(records, process, policySha256, unrelated).canTransition).toBe(true);
     const changedRequirement = { ...unrelated, currentRecordIds: allIds.filter((id) => id !== "req") };
     const blocked = evaluateProject(records, process, policySha256, changedRequirement);
@@ -283,5 +284,14 @@ describe("process projection", () => {
     const absoluteRepo = structuredClone(created);
     absoluteRepo.payload.targetRepoId = "/tmp/private-path";
     expect(() => evaluateProject([absoluteRepo], process, policySha256, snapshot)).toThrow(/repo|対象/);
+  });
+
+  it("blocks P0 when the baseline commit was not verified", () => {
+    const bad = { ...snapshot, baseCommitVerified: false };
+    const result = evaluateProject([created, submitted("constitution", "P0", "constitution")], process, policySha256, bad);
+    expect(result.canTransition).toBe(false);
+    expect(result.missing).toContain("target:baseline-unverified");
+    expect(() => evaluateProject([created, submitted("constitution", "P0", "constitution"),
+      transitioned("to-p1", "P0", "P1", ["constitution"])], process, policySha256, bad)).toThrow(/基準commit/);
   });
 });

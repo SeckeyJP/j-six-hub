@@ -33,7 +33,8 @@ describe("Git artifact verifier", () => {
     const submitted = { recordId: "constitution-v1", kind: "artifact.submitted",
       payload: { artifactId: "constitution", targetCommit: commit, path: "constitution.md", sha256 } };
     expect(verifyArtifact(root, submitted.payload)).toBe(true);
-    expect(verifiedSnapshot(root, [submitted], commit, "approval-workflow")).toEqual({ repoId: "approval-workflow", commit, verifiedRecordIds: ["constitution-v1"], currentRecordIds: ["constitution-v1"], invalidRecords: [] });
+    expect(verifiedSnapshot(root, [submitted], commit, "approval-workflow")).toEqual({ repoId: "approval-workflow", commit,
+      baseCommitVerified: false, verifiedRecordIds: ["constitution-v1"], currentRecordIds: ["constitution-v1"], invalidRecords: [] });
   });
 
   it("rejects wrong hashes, path traversal, and symlink entries", async () => {
@@ -106,5 +107,32 @@ describe("Git artifact verifier", () => {
     const result = verifiedSnapshot(root, [record], commit, "approval-workflow");
     expect(result.verifiedRecordIds).toEqual([]);
     expect(result.invalidRecords[0]?.reason).toMatch(/empty|空|構造/);
+  });
+
+  it("requires the project's exact baseline commit to exist and precede the current commit", async () => {
+    const { root, commit } = await fixture();
+    const created = (/** @type {string} */ targetCommit) => ({ kind: "project.created", payload: { targetCommit } });
+    expect(verifiedSnapshot(root, [created(commit)], commit, "approval-workflow").baseCommitVerified).toBe(true);
+    expect(verifiedSnapshot(root, [created("f".repeat(40))], commit, "approval-workflow").baseCommitVerified).toBe(false);
+    const blob = execFileSync("git", ["-C", root, "hash-object", "constitution.md"], { encoding: "utf8" }).trim();
+    expect(verifiedSnapshot(root, [created(blob)], commit, "approval-workflow").baseCommitVerified).toBe(false);
+  });
+
+  it("rejects keyword-only task files committed in Git", async () => {
+    const { root } = await fixture();
+    const content = "AC- PROP- allow deny 依存";
+    await writeFile(join(root, "task.md"), content);
+    const env = { ...process.env, GIT_AUTHOR_NAME: "PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
+      GIT_COMMITTER_NAME: "PoC", GIT_COMMITTER_EMAIL: "poc@localhost" };
+    execFileSync("git", ["-C", root, "add", "task.md"], { env });
+    execFileSync("git", ["-C", root, "commit", "-qm", "task keywords only"], { env });
+    const commit = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const record = { recordId: "task", kind: "artifact.submitted", payload: {
+      artifactId: "task_definition", targetCommit: commit, path: "task.md",
+      sha256: createHash("sha256").update(content).digest("hex"),
+    } };
+    const snapshot = verifiedSnapshot(root, [record], commit, "approval-workflow");
+    expect(snapshot.verifiedRecordIds).toEqual([]);
+    expect(snapshot.invalidRecords[0]?.reason).toMatch(/task:allow|hold-out|required-checks/);
   });
 });

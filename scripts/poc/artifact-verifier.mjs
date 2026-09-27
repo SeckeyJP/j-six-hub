@@ -47,6 +47,18 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
   const verifiedRecordIds = [];
   const currentRecordIds = [];
   const invalidRecords = [];
+  let baseCommitVerified = false;
+  const baseline = records.find((record) => record.kind === "project.created")?.payload?.targetCommit;
+  if (/^[0-9a-f]{40,64}$/.test(baseline)) {
+    try {
+      const resolved = git(repo, ["rev-parse", "--verify", `${baseline}^{commit}`]).toString("utf8").trim();
+      const current = git(repo, ["rev-parse", "--verify", `${commit}^{commit}`]).toString("utf8").trim();
+      if (resolved === baseline && current === commit) {
+        git(repo, ["merge-base", "--is-ancestor", baseline, commit]);
+        baseCommitVerified = true;
+      }
+    } catch { /* Missing, non-commit, or unrelated baseline is never evidence. */ }
+  }
   // A recorded transition remains provisional until its historical Git blobs can be rechecked.
   for (const record of records) {
     if (record.kind !== "artifact.submitted") continue;
@@ -64,5 +76,5 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
       invalidRecords.push({ recordId: record.recordId, reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  return { repoId, commit, verifiedRecordIds, currentRecordIds, invalidRecords };
+  return { repoId, commit, baseCommitVerified, verifiedRecordIds, currentRecordIds, invalidRecords };
 }

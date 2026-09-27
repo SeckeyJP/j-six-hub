@@ -82,7 +82,7 @@ export function validateProcess(process, pinnedSha256) {
   return { phases, phaseIds, gates: gateByPhase, processCommit: process._source.tag };
 }
 
-/** @param {any[]} records @param {any} model @param {{repoId:string,commit:string,verifiedRecordIds:string[],currentRecordIds:string[]}} snapshot */
+/** @param {any[]} records @param {any} model @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[]}} snapshot */
 function projectPosition(records, model, snapshot) {
   const first = records[0];
   if (first?.kind !== "project.created") throw new Error("project.createdが先頭にありません");
@@ -132,6 +132,7 @@ function projectPosition(records, model, snapshot) {
       }
     }
     if (record.kind === "phase.transitioned") {
+      if (snapshot.baseCommitVerified !== true) throw new Error("基準commitがGit未検証のため遷移履歴を再生できません");
       const next = model.phaseIds[model.phaseIds.indexOf(phase) + 1];
       if (record.payload?.from !== phase || record.payload.to !== next || record.payload.generation !== generation) {
         throw new Error(`定義外または古いPhase遷移です: ${phase}→${record.payload?.to}`);
@@ -228,7 +229,7 @@ function gateGaps(gate, records, review, generation, now) {
 /**
  * Pure projection. The snapshot must come from a separate Git verifier; an unverified claim is never a pass.
  * @param {any[]} records @param {any} process @param {string} policySha256
- * @param {{repoId:string,commit:string,verifiedRecordIds:string[],currentRecordIds:string[]}} snapshot @param {string=} now
+ * @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[]}} snapshot @param {string=} now
  */
 export function evaluateProject(records, process, policySha256, snapshot, now = new Date().toISOString()) {
   if (!Array.isArray(records) || !records.length) throw new Error("案件recordがありません");
@@ -244,6 +245,7 @@ export function evaluateProject(records, process, policySha256, snapshot, now = 
   const missing = [];
   if (!sha256.test(policySha256) || first.payload.policySha256 !== policySha256) missing.push("policy:changed");
   if (snapshot.repoId !== first.payload.targetRepoId) missing.push("target:repo-mismatch");
+  if (snapshot.baseCommitVerified !== true) missing.push("target:baseline-unverified");
   if (!commitId.test(snapshot?.commit) || !Array.isArray(snapshot?.verifiedRecordIds)) missing.push("target:unverified");
   /** @type {any[]} */
   let activeTransitions = [];

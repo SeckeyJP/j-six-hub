@@ -87,6 +87,29 @@ describe("passed artifact validity across real Git commits", () => {
       reason: "synthetic", expiresAt: "2026-12-31T00:00:00.000Z" });
     const valid = verifiedSnapshot(root, records, unrelated, "approval-workflow");
     expect(evaluateProject(records, processDefinition, localPolicySha256, valid, now).canTransition).toBe(true);
+    transition("to-p3", "P2", "P3", unrelated,
+      ["design_spec", "adr", "working_prototype", "properties"], "review-p2", ["decision-p2"]);
+    const keywordList = "AC- PROP- allow deny 依存";
+    const keywordDefinition = "AC- PROP- allow deny";
+    files["task-list.md"] = keywordList;
+    files["task-definition.md"] = keywordDefinition;
+    await writeFile(join(root, "task-list.md"), keywordList);
+    await writeFile(join(root, "task-definition.md"), keywordDefinition);
+    git(["add", "task-list.md", "task-definition.md"]); git(["commit", "-qm", "keyword-only task"]);
+    const keywordOnly = git(["rev-parse", "HEAD"]);
+    submit("task-list", "P3", "task_list", "task-list.md", keywordOnly);
+    submit("task-definition", "P3", "task_definition", "task-definition.md", keywordOnly);
+    record("review-p3", "phase.review_requested", { phase: "P3", generation: 0,
+      artifactRecordIds: ["task-list", "task-definition"], policySha256: localPolicySha256 });
+    record("decision-p3", "gate.local_decision", { gateId: "task_approval", phase: "P3", generation: 0,
+      reviewRecordId: "review-p3", outcome: "approved", simulated: true, role: "gatekeeper",
+      reason: "synthetic", expiresAt: "2026-12-31T00:00:00.000Z" });
+    const incomplete = verifiedSnapshot(root, records, keywordOnly, "approval-workflow");
+    expect(incomplete.invalidRecords.map((item) => item.recordId)).toEqual(["task-list", "task-definition"]);
+    const p3 = evaluateProject(records, processDefinition, localPolicySha256, incomplete, now);
+    expect(p3.phase).toBe("P3");
+    expect(p3.canTransition).toBe(false);
+    expect(p3.missing).toContain("artifact:task_list:unverified");
     files["requirements.md"] = "REQ-002 AC-002 PROP-002 受入条件 非機能 未確定\n";
     await writeFile(join(root, "requirements.md"), files["requirements.md"]);
     git(["add", "requirements.md"]); git(["commit", "-qm", "changed requirement"]);
