@@ -111,6 +111,27 @@ describe("passed artifact validity across real Git commits", () => {
     expect(p3.phase).toBe("P3");
     expect(p3.canTransition).toBe(false);
     expect(p3.missing).toContain("artifact:task_list:unverified");
+    const oneTask = "TASK-001: synthetic task\nAC-001: acceptance\nPROP-001: property\n依存: none\n" +
+      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit,lint\n";
+    const twoTasks = oneTask + "TASK-002: second task\n";
+    files["task-list.md"] = twoTasks;
+    files["task-definition.md"] = oneTask;
+    await writeFile(join(root, "task-list.md"), twoTasks);
+    await writeFile(join(root, "task-definition.md"), oneTask);
+    git(["add", "task-list.md", "task-definition.md"]); git(["commit", "-qm", "second task has no definition"]);
+    const multipleTasks = git(["rev-parse", "HEAD"]);
+    submit("task-list-v2", "P3", "task_list", "task-list.md", multipleTasks);
+    submit("task-definition-v2", "P3", "task_definition", "task-definition.md", multipleTasks);
+    record("review-p3-v2", "phase.review_requested", { phase: "P3", generation: 0,
+      artifactRecordIds: ["task-list-v2", "task-definition-v2"], policySha256: localPolicySha256 });
+    record("decision-p3-v2", "gate.local_decision", { gateId: "task_approval", phase: "P3", generation: 0,
+      reviewRecordId: "review-p3-v2", outcome: "approved", simulated: true, role: "gatekeeper",
+      reason: "synthetic", expiresAt: "2026-12-31T00:00:00.000Z" });
+    const multiple = verifiedSnapshot(root, records, multipleTasks, "approval-workflow");
+    expect(multiple.invalidRecords.map((item) => item.recordId)).toContain("task-list-v2");
+    const multipleState = evaluateProject(records, processDefinition, localPolicySha256, multiple, now);
+    expect(multipleState.canTransition).toBe(false);
+    expect(multipleState.missing).toContain("artifact:task_list:unverified");
     files["requirements.md"] = "REQ-002: changed requirement\nAC-002: changed acceptance\nPROP-002: changed property\n" +
       "受入条件: changed text\n非機能: local-only operation\n未確定: なし\n";
     await writeFile(join(root, "requirements.md"), files["requirements.md"]);

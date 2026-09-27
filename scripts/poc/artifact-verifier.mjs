@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { isAbsolute, posix } from "node:path";
-import { validateArtifactStructure } from "./policy.mjs";
+import { taskIds, validateArtifactStructure } from "./policy.mjs";
 
 /** @param {string} repo @param {string[]} args */
 function git(repo, args) {
@@ -54,6 +54,8 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
   const verifiedAtCommits = {};
   /** @type {string[]} */
   const validTransitionRecordIds = [];
+  /** @type {Map<string,string>} */
+  const verifiedContent = new Map();
   let baseCommitVerified = false;
   const baseline = records.find((record) => record.kind === "project.created")?.payload?.targetCommit;
   if (/^[0-9a-f]{40,64}$/.test(baseline)) {
@@ -75,12 +77,29 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
       const gaps = validateArtifactStructure(record.payload.artifactId, content);
       if (gaps.length) throw new Error(`artifact構造が不足しています: ${gaps.join(", ")}`);
       verifiedRecordIds.push(record.recordId);
+      verifiedContent.set(record.recordId, content);
       try {
         if (record.payload.targetCommit !== commit) verifyArtifact(repo, { ...record.payload, targetCommit: commit });
         currentRecordIds.push(record.recordId);
       } catch { /* Historical evidence remains valid, but its current premise has changed. */ }
     } catch (error) {
       invalidRecords.push({ recordId: record.recordId, reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  const p3Generations = new Set(records.filter((item) => item.kind === "artifact.submitted" &&
+    item.payload?.phase === "P3").map((item) => item.payload.generation));
+  for (const generation of p3Generations) {
+    const submitted = records.filter((item) => item.kind === "artifact.submitted" &&
+      item.payload?.phase === "P3" && item.payload?.generation === generation);
+    const list = [...submitted].reverse().find((item) => item.payload.artifactId === "task_list");
+    const definition = [...submitted].reverse().find((item) => item.payload.artifactId === "task_definition");
+    if (!list || !definition || !verifiedContent.has(list.recordId) || !verifiedContent.has(definition.recordId)) continue;
+    if (taskIds(verifiedContent.get(list.recordId) ?? "")[0] !== taskIds(verifiedContent.get(definition.recordId) ?? "")[0]) {
+      for (const ids of [verifiedRecordIds, currentRecordIds]) {
+        const index = ids.indexOf(definition.recordId);
+        if (index >= 0) ids.splice(index, 1);
+      }
+      invalidRecords.push({ recordId: definition.recordId, reason: "task_listとtask_definitionのTASK IDが一致しません" });
     }
   }
   let previousTransitionCommit = baseline;

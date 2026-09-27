@@ -204,4 +204,35 @@ describe("Git artifact verifier", () => {
       [submission("design", "P2", "design_spec", "design.md", design)], commit, "approval-workflow");
     expect(designSnapshot.invalidRecords.map((item) => item.recordId)).toContain("design");
   }, 60_000);
+
+  it("rejects TODO task content and a task definition for a different listed task", async () => {
+    const { root } = await fixture();
+    const controls = "AC-001: acceptance\nPROP-001: property\n依存: none\n" +
+      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit\n";
+    const list = `TASK-001: listed task\n${controls}`;
+    const definition = `TASK-002: different task\n${controls}`;
+    const todo = `TASK-003: TODO\nAC-003: TODO\nPROP-003: TODO\n依存: TODO\n` +
+      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit\n";
+    await writeFile(join(root, "task-list.md"), list);
+    await writeFile(join(root, "task-definition.md"), definition);
+    await writeFile(join(root, "todo.md"), todo);
+    const env = { ...process.env, GIT_AUTHOR_NAME: "PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
+      GIT_COMMITTER_NAME: "PoC", GIT_COMMITTER_EMAIL: "poc@localhost" };
+    execFileSync("git", ["-C", root, "add", "task-list.md", "task-definition.md", "todo.md"], { env });
+    execFileSync("git", ["-C", root, "commit", "-qm", "task controls"], { env });
+    const commit = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const submitted = (/** @type {string} */ recordId, /** @type {string} */ artifactId,
+      /** @type {string} */ path, /** @type {string} */ content) => ({ recordId, kind: "artifact.submitted",
+      payload: { phase: "P3", generation: 0, artifactId, targetCommit: commit, path,
+        sha256: createHash("sha256").update(content).digest("hex") } });
+    const records = [submitted("list", "task_list", "task-list.md", list),
+      submitted("definition", "task_definition", "task-definition.md", definition),
+      submitted("todo", "task_definition", "todo.md", todo)];
+    const todoResult = verifiedSnapshot(root, [records[2]], commit, "approval-workflow");
+    expect(todoResult.invalidRecords[0]?.reason).toMatch(/TASK|TODO|構造/);
+    const mismatch = verifiedSnapshot(root, records.slice(0, 2), commit, "approval-workflow");
+    expect(mismatch.verifiedRecordIds).toContain("list");
+    expect(mismatch.verifiedRecordIds).not.toContain("definition");
+    expect(mismatch.invalidRecords[0]?.reason).toMatch(/TASK ID/);
+  }, 60_000);
 });

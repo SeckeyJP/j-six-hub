@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 // These are additional checks for the synthetic local PoC, not gates added to the J-SIX definition.
 export const localPolicy = Object.freeze({
   schemaVersion: 1,
-  id: "single-pc-developer-journey-v4",
+  id: "single-pc-developer-journey-v5",
   artifactRules: {
     requirement_spec: ["REQ-", "AC-", "PROP-", "受入条件", "非機能", "未確定"],
     design_spec: ["検証戦略", "設計書目次"],
@@ -30,9 +30,10 @@ function safeTaskPath(value) {
 function taskGaps(content) {
   const missing = [];
   for (const marker of ["TASK", "AC", "PROP"]) {
-    if (!new RegExp(`^${marker}-\\d+:[ \\t]*\\S`, "m").test(content)) missing.push(`task:${marker}:missing-or-invalid`);
+    if (!hasFilledField(content, marker)) missing.push(`task:${marker}:missing-or-invalid`);
   }
-  if (!/^依存:[ \t]*\S/m.test(content)) missing.push("task:dependencies:missing-or-invalid");
+  if (!hasFilledField(content, "依存", true)) missing.push("task:dependencies:missing-or-invalid");
+  if (taskIds(content).length !== 1) missing.push("task:multiple-definitions:unimplemented");
   for (const field of ["allow", "deny", "hold-out"]) {
     const value = new RegExp(`^${field}:[ \\t]*(\\S[^\\r\\n]*)$`, "m").exec(content)?.[1]?.trim();
     if (!value || !value.split(",").map((part) => part.trim()).every(safeTaskPath)) {
@@ -49,12 +50,18 @@ function taskGaps(content) {
 
 /** @param {string} content @param {string} field @param {boolean=} allowNone */
 function hasFilledField(content, field, allowNone = false) {
-  const pattern = field === "REQ" || field === "AC" || field === "PROP"
+  const pattern = ["REQ", "AC", "PROP", "TASK"].includes(field)
     ? `^${field}-[0-9]+:[ \\t]*(\\S[^\\r\\n]*)$`
     : `^${field}[：:][ \\t]*(\\S[^\\r\\n]*)$`;
   const value = new RegExp(pattern, "m").exec(content)?.[1]?.trim();
-  if (!value || /^(?:TODO|TBD|未定|未記入|\.\.\.|-|なし)$/i.test(value) && !(allowNone && value === "なし")) return false;
+  if (!value || /^(?:TODO|TBD|未定|未記入|\.\.\.|-|なし|none)$/i.test(value) &&
+    !(allowNone && /^(?:なし|none)$/i.test(value))) return false;
   return true;
+}
+
+/** @param {string} content */
+export function taskIds(content) {
+  return [...content.matchAll(/^TASK-[0-9]+:/gm)].map((match) => match[0].slice(0, -1));
 }
 
 /** @param {string} content */
