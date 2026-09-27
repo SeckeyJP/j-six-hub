@@ -3,7 +3,7 @@
 > このファイルは Claude Code がセッション開始時に自動読込するプロジェクト憲法です。
 > J-SIX (Japanese SI Transformation) プロセスに基づいています。
 > J-SIX の `templates/claude-md/base.md` と `web-app.md` から作成しました。
-> Hub 自体を J-SIX で開発し、その記録をケーススタディにします（J-SIX `docs/control-plane/` の ADR を参照）。現行の公開物はリプレイ型サンプルです。別に単一 PC の中央実行型 PoC を段階実装中で、工程判定・Git台帳・成果物照合とPhase 0〜3のlocalhost API／開発者画面が存在します。実CLIと全工程一巡は未実装です。
+> Hub 自体を J-SIX で開発し、その記録をケーススタディにします（J-SIX `docs/control-plane/` の ADR を参照）。現行の公開物はリプレイ型サンプルです。別に単一 PC の中央実行型 PoC を段階実装中で、固定合成タスクを使う Phase 0〜6 の dry run、工程判定・Git台帳・成果物照合・localhost API／開発者画面があります。実 Codex／Claude Code CLI 接続は未実装です。
 
 ---
 
@@ -19,7 +19,7 @@
 ### 技術スタック
 
 - **公開リプレイの構成**: 静的 SPA、バックエンドなし、GitHub Pages で公開
-- **単一 PC PoC の構成**: Node工程判定、非公開Git台帳、Git成果物照合、localhost API／開発者ワークベンチ／中央監視を実装。作業用worktree、CLI adapter、独立検査は設計段階。公開Pagesに実行機能を載せない
+- **単一 PC PoC の構成**: Node工程判定、非公開Git台帳、Git成果物照合、localhost API／開発者ワークベンチ／中央監視、固定合成タスク用worktreeと G1/G2・結合検査を実装。実CLI adapterは設計段階。公開Pagesに実行機能を載せない
 - **言語・フレームワーク・テストツール**: TypeScript 6.0 / React 19 / Vite 8 / Vitest + Testing Library（[ADR-0002](docs/adr/0002-web-app-stack.md)）
 - **DB**: リプレイはなし（`data/events.jsonl` を読み込む）。PoC の正本も非公開のローカル Git とし、別 DB 正本を作らない
 - **CI/CD**: GitHub Actions
@@ -28,7 +28,7 @@
 
 - リプレイ要求／Design Spec: `docs/specs/requirement-spec.md`、`docs/specs/design-spec.md`
 - 単一 PC PoC 要求／Design Spec: `docs/specs/local-execution-requirement-spec.md`、`docs/specs/local-execution-design-spec.md`。独立レビュー後にコード着手
-- 全工程の開発者体験: `docs/specs/developer-journey-requirement-spec.md`、`docs/specs/developer-journey-design-spec.md`、`docs/adr/0008-developer-workbench.md`。単一runのSpecに追加する未実装の設計。これらも独立レビュー・gate通過後にコード着手
+- 全工程の開発者体験: `docs/specs/developer-journey-requirement-spec.md`、`docs/specs/developer-journey-design-spec.md`、`docs/adr/0008-developer-workbench.md`。固定合成タスクのdry runを実装済み。実CLI接続は別段階で独立レビュー・gate通過後に着手
 - ADR（Hub 固有）: `docs/adr/`
 - 構想・決定事項（D1〜D9）: J-SIX リポジトリ `docs/control-plane/`
 - リプレイ用データ: `data/`（M3 で作成）
@@ -59,7 +59,7 @@ npm run poc:dev -- --config .local-poc/config.json  # localhost API／画面
 ```
 
 > **重要**: テストは必ず実行して通ることを確認してからコミットすること。
-> `poc:test` は工程・台帳・ローカルAPIを検証する。CLI実行器と全工程一巡は未実装。実企業PJのデータを使わない。
+> `poc:test` は工程・台帳・ローカルAPIと固定合成タスクの全工程一巡を検証する。実CLI実行器は未実装。実企業PJのデータを使わない。
 
 ---
 

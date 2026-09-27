@@ -70,7 +70,7 @@ function renderProjects() {
   }
   const list = byId("projects"); list.replaceChildren();
   for (const project of listing.projects) {
-    const button = element("button", `${project.fixtureId ?? "不明"} — ${project.phase ?? "保留"} ${project.phaseName}`);
+    const button = element("button", `${project.fixtureId ?? "不明"} — ${project.phase ?? "保留"} ${project.phaseName}${project.completed ? " · 完了" : ""}`);
     button.type = "button";
     button.addEventListener("click", async () => {
       selectedId = project.projectId; await refresh();
@@ -106,6 +106,21 @@ function renderActivity(project) {
     } else if (item.kind === "transition") {
       append(row, element("strong", `${item.from} → ${item.to} 遷移${item.state === "invalidated" ? " · 差戻しで失効" : ""}`),
         element("p", `対象commit ${item.targetCommit} · 世代 ${item.generation}`, "code"));
+    } else if (item.kind === "run") {
+      append(row, element("strong", `${item.phase} 合成 ${item.mode} run · G1/G2 ${item.passed}/${item.total} 通過`),
+        element("p", `run ${item.runId} · 候補 ${item.candidateCommit}`, "code"));
+    } else if (item.kind === "candidate") {
+      append(row, element("strong", "P4 検査済み候補を受入れ"),
+        element("p", `run ${item.runId} · 証跡commit ${item.targetCommit}`, "code"));
+    } else if (item.kind === "check") {
+      append(row, element("strong", `${item.phase} ${item.layerId}/${item.checkId}: ${item.result}`),
+        element("p", `対象commit ${item.targetCommit}`, "code"));
+    } else if (item.kind === "delivery") {
+      append(row, element("strong", "P6 逆生成納品物"),
+        element("p", `${item.path} · 対象commit ${item.targetCommit}`, "code"));
+    } else if (item.kind === "complete") {
+      append(row, element("strong", "ローカル合成 PoC 完了"),
+        element("p", `対象commit ${item.targetCommit}`, "code"));
     }
     if (item.statusReasons?.length) append(row, element("p",
       `再確認理由: ${item.statusReasons.map((reason) => explainMissing(reason, project)).join("、")}`, "blocked"));
@@ -123,7 +138,8 @@ function renderMonitor() {
     const card = element("article");
     append(card, element("h3", `${project.fixtureId ?? "不明"} · ${project.phase ?? "保留"} ${project.phaseName}`),
       element("p", `案件ID: ${project.projectId}`, "code"),
-      element("p", `世代 ${project.generation ?? "不明"} · ${project.canTransition ? "次へ進行可能" : "保留中"}`),
+      element("p", `世代 ${project.generation ?? "不明"} · ${project.completed ? "ローカルPoC完了" :
+        project.canTransition || project.canComplete ? "進行可能" : "保留中"}`),
       element("p", "判断はローカル模擬。実顧客承認ではありません。"));
     if (!project.verified) append(card, element("p", project.holdReason, "warning"));
     const list = element("ul");
@@ -154,6 +170,7 @@ function explainMissing(reason, project) {
   if (reason === "target:commit-changed") return "対象Git commitが提出時から変わりました";
   if (reason === "target:baseline-unverified") return "基準commitの系列を照合できません";
   if (reason === "policy:changed") return "PoC方針版が変わりました";
+  if (reason === "completion:target-changed-reopen-required") return "完了後に対象commitが変わりました。Phaseを差し戻して再確認してください";
   return reason;
 }
 
@@ -170,17 +187,41 @@ function renderDetail() {
     element("p", `対象commit: ${project.targetCommit}`, "code"),
     element("p", `台帳ref: ${detail.head || "初期"}`, "code"),
     element("p", `方針hash: ${project.policySha256}`, "code"));
-  const missingTitle = element("h3", "ゲートの不足・保留理由");
+  const missingTitle = element("h3", project.completed ? "完了状態" : "ゲートの不足・保留理由");
   const missing = element("ul");
   if (project.missing.length) project.missing.forEach((reason) => append(missing, element("li", explainMissing(reason, project), "blocked")));
-  else append(missing, element("li", "現在の遷移条件が揃っています。"));
+  else append(missing, element("li", project.completed ? "対象版は完了記録と一致しています。" : "現在の遷移条件が揃っています。"));
   append(root, missingTitle, missing);
-  append(root, renderActivity(project));
-  const unavailable = ["P4", "P5", "P6"].includes(project.phase);
-  if (unavailable) {
-    append(root, element("p", "このPhaseのCLI・実検査・納品判定は後続段階で実装します。現在は操作できません。", "warning"));
+  if (project.completed) append(root, element("p", "合成案件の一巡が完了しました。正式な顧客検収ではありません。"));
+  if (!project.completed) {
+  if (project.phase === "P4") {
+    append(root, element("h3", "合成タスクの TDD 実行"),
+      element("p", "固定された模擬作業者が候補を作り、Hub が G1/G2 を実行します。AI CLI はこの段階では起動しません。"));
+    if (project.run?.runId) {
+      append(root, element("p", `run ${project.run.runId} · 候補 ${project.run.candidateCommit} · ${project.run.accepted ? "受入れ済み" : "受入れ待ち"}`, "code"));
+      const checks = element("ul");
+      for (const check of project.run.checks) append(checks, element("li", `${check.layer}/${check.id}: ${check.result}`));
+      append(root, checks);
+      if (!project.run.accepted) {
+        const accept = form("検査済み候補を Git に受け入れる", "候補を受け入れる", async () =>
+          command("accept-candidates", { ...common(project), runId: project.run.runId }));
+        append(accept.node, accept.button); append(root, accept.node);
+      }
+    } else {
+      const run = form("固定合成タスクを開始", "TDD を実行", async () => command("fake-runs", common(project)));
+      append(run.node, run.button); append(root, run.node);
+    }
   }
-  if (!unavailable) {
+  if (project.phase === "P5") {
+    append(root, element("p", "結合シナリオを実行し、品質記録を対象 Git に保存します。"));
+    const integration = form("合成結合・E2E 検査", "結合検査を実行", async () => command("integration", common(project)));
+    append(integration.node, integration.button); append(root, integration.node);
+  }
+  if (project.phase === "P6") {
+    append(root, element("p", "実装・証跡の対象版から逆生成文書と納品一覧を作ります。"));
+    const delivery = form("合成納品物を準備", "納品物を生成", async () => command("deliverables", common(project)));
+    append(delivery.node, delivery.button); append(root, delivery.node);
+  }
   append(root, element("h3", "必要な成果物"));
   const artifacts = element("ul");
   for (const item of project.artifacts) {
@@ -190,13 +231,19 @@ function renderDetail() {
   append(root, artifacts);
   const submit = form("Git成果物を提出", "提出", async (data) => command("artifacts", { ...common(project),
     artifactId: data.get("artifactId"), path: data.get("path"), sha256: data.get("sha256") }));
-  select(submit.node, "成果物", "artifactId", project.requiredArtifacts.map((item) => [item.id, item.name]));
-  field(submit.node, "対象commit内の相対path", "path");
-  field(submit.node, "ファイル内容のSHA-256（shasum -a 256）", "sha256");
+  const artifactChoice = select(submit.node, "成果物", "artifactId", project.requiredArtifacts.map((item) => [item.id, item.name]));
+  const pathInput = field(submit.node, "対象commit内の相対path", "path");
+  const hashInput = field(submit.node, "ファイル内容のSHA-256", "sha256");
+  const updateSuggestion = () => {
+    const suggestion = project.requiredArtifacts.find((item) => item.id === artifactChoice.value)?.suggested;
+    pathInput.value = suggestion?.path ?? ""; hashInput.value = suggestion?.sha256 ?? "";
+  };
+  artifactChoice.addEventListener("change", updateSuggestion); updateSuggestion();
   append(submit.node, submit.button); append(root, submit.node);
   if (project.gate) {
     const review = form("提出版の審査要求", "審査を要求", async () => command("review-requests", common(project)));
     append(review.node, review.button); append(root, review.node);
+    if (project.approverRoles.length) {
     const decision = form("ローカル模擬判断", "模擬判断を記録", async (data) => command("decisions", {
       ...common(project), role: data.get("role"), outcome: data.get("outcome"),
       reason: data.get("reason"), expiresAt: new Date(data.get("expiresAt")).toISOString(),
@@ -205,12 +252,20 @@ function renderDetail() {
     select(decision.node, "判断", "outcome", [["approved", "承認を模擬"], ["rejected", "差戻しを模擬"]]);
     field(decision.node, "理由", "reason");
     const expiry = field(decision.node, "有効期限", "expiresAt", "", "datetime-local");
-    expiry.value = new Date(Date.now() + 24 * 3600_000).toISOString().slice(0, 16);
+    const tomorrow = new Date(Date.now() + 24 * 3600_000);
+    expiry.value = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     append(decision.node, decision.button); append(root, decision.node);
+    }
   }
-  const transition = form("次のPhaseへ", "遷移", async () => command("transitions", common(project)));
-  transition.button.disabled = !project.canTransition;
-  append(transition.node, transition.button); append(root, transition.node);
+  if (project.phase === "P6") {
+    const complete = form("ローカル PoC 完了", "完了を記録", async () => command("complete", common(project)));
+    complete.button.disabled = !project.canComplete;
+    append(complete.node, complete.button); append(root, complete.node);
+  } else {
+    const transition = form("次のPhaseへ", "遷移", async () => command("transitions", common(project)));
+    transition.button.disabled = !project.canTransition;
+    append(transition.node, transition.button); append(root, transition.node);
+  }
   }
   if (project.priorPhases.length) {
     const reopen = form("Phaseを差し戻す", "差戻しを記録", async (data) => {
@@ -225,6 +280,11 @@ function renderDetail() {
     append(reopen.node, confirmLabel);
     reopen.button.className = "danger";
     append(reopen.node, reopen.button); append(root, reopen.node);
+  }
+  if (project.activity?.length) {
+    const history = element("details");
+    append(history, element("summary", "審査・検査・判断の履歴を表示"), renderActivity(project));
+    append(root, history);
   }
 }
 
