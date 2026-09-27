@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSyntheticTdd } from "./fake-runner.mjs";
+import { inspectSyntheticCandidate } from "./synthetic-checks.mjs";
 
 /** @type {string[]} */
 const roots = [];
@@ -45,5 +46,20 @@ describe("synthetic TDD worktree", () => {
     expect(git(worktree, ["rev-parse", `${redStep.commit}:tests/approval.test.mjs`]))
       .toBe(git(worktree, ["rev-parse", `${refactor}:tests/approval.test.mjs`]));
     expect(git(repo, ["rev-parse", "HEAD"])).toBe(baseline);
+    const inspection = await inspectSyntheticCandidate({ repo, worktreeRoot: join(root, "runs"), run: result,
+      taskDefinition: "TASK-001: bounded approval\nAC-001: values within limit\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: unit,lint\n",
+      requirementSpec: "REQ-001: bounded approval\nAC-001: values within limit\nPROP-001: bounded\n" });
+    expect(inspection.checks.map((check) => `${check.layer}/${check.id}`)).toEqual([
+      "G1/build", "G1/typecheck", "G1/lint", "G1/format", "G1/sast", "G1/secrets",
+      "G1/deps", "G1/scope", "G1/interface_contract", "G2/tests", "G2/coverage",
+      "G2/mutation", "G2/test_tamper", "G2/holdout", "G2/traceability",
+    ]);
+    expect(inspection.checks.every((check) => check.result === "passed")).toBe(true);
+    expect(inspection.candidateCommit).toBe(refactor);
+    await writeFile(join(worktree, "tests/holdout.test.mjs"), "// weakened\n");
+    git(worktree, ["add", "tests/holdout.test.mjs"]); git(worktree, ["commit", "-qm", "tamper holdout"]);
+    await expect(inspectSyntheticCandidate({ repo, worktreeRoot: join(root, "runs"), run: result,
+      taskDefinition: "TASK-001: bounded approval\nallow: src/**\ndeny: tests/holdout.test.mjs\n",
+      requirementSpec: "REQ-001: bounded approval\n" })).rejects.toThrow(/候補HEAD/);
   }, 30_000);
 });
