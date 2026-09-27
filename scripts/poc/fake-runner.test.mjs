@@ -9,6 +9,7 @@ import { runSyntheticTdd } from "./fake-runner.mjs";
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
+/** @param {string} repo @param {string[]} args */
 function git(repo, args) {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8",
     env: { ...process.env, GIT_AUTHOR_NAME: "Synthetic PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
@@ -35,11 +36,13 @@ describe("synthetic TDD worktree", () => {
       expect(result.steps.find((step) => step.id === id)?.test?.status).toBe("passed");
     }
     const worktree = join(root, "runs", "synthetic-001");
-    const holdout = result.steps[0].commit;
-    const refactor = result.steps[3].commit;
+    const [holdoutStep, redStep, , refactorStep] = result.steps;
+    if (!holdoutStep || !redStep || !refactorStep) throw new Error("TDD step missing");
+    const holdout = holdoutStep.commit;
+    const refactor = refactorStep.commit;
     expect(git(worktree, ["rev-parse", `${holdout}:tests/holdout.test.mjs`]))
       .toBe(git(worktree, ["rev-parse", `${refactor}:tests/holdout.test.mjs`]));
-    expect(git(worktree, ["rev-parse", `${result.steps[1].commit}:tests/approval.test.mjs`]))
+    expect(git(worktree, ["rev-parse", `${redStep.commit}:tests/approval.test.mjs`]))
       .toBe(git(worktree, ["rev-parse", `${refactor}:tests/approval.test.mjs`]));
     expect(git(repo, ["rev-parse", "HEAD"])).toBe(baseline);
   }, 30_000);
