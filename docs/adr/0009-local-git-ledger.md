@@ -16,7 +16,7 @@
 
 PoCの台帳はremoteのない専用Git repo `refs/heads/poc-ledger` に置く。1 recordを1 commitの `record.json` とし、commitのGit親、record内の前commitと前record SHA256を再生時に照合する。schema版、record ID、project ID、種別、時刻、payloadを記録する。重複ID、未知schema、不正hash、連鎖不一致では再生を止める。書込は `.git/poc-operation.lock` の原子的作成で直列化し、期待old SHA付き `git update-ref` と更新後の再読込が一致して初めて成功とする。
 
-操作lockが残った場合は自動奪取しない。ref更新の結果や再読込が不明な場合もlockを残して手動照合する。台帳には個人情報、生ログ、認証情報、絶対パスを保存しない。成果物本体は別の対象Git repoに置き、対象commit・相対path・blob内容SHA256を照合する。symlinkとsubmoduleは提出対象にしない。
+操作lockが残った場合は自動奪取しない。ref更新の結果や再読込が不明な場合もlockを残して手動照合する。台帳には個人情報、生ログ、認証情報、絶対パスを保存しない。成果物本体は別の対象Git repoに置き、対象commit・相対path・blob内容SHA256を照合する。symlinkとsubmoduleは提出対象にしない。再投影時も過去の提出commitをGitで再照合し、遷移recordの対象commit・提出record集合・方針・判断IDを照合する。判断期限は新しい遷移を許可する時刻に適用し、期限内に完了した遷移の履歴を後から消さない。過去工程の提出を変更する場合は明示的にPhaseをreopenし、世代を更新する。
 
 ## 理由（Rationale）
 

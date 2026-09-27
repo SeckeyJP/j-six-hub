@@ -43,11 +43,12 @@ export function verifyArtifact(repo, artifact) {
 export function verifiedSnapshot(repo, records, commit) {
   const verifiedRecordIds = [];
   const invalidRecords = [];
+  // A recorded transition remains provisional until its historical Git blobs can be rechecked.
   for (const record of records) {
-    if (record.kind !== "artifact.submitted" || record.payload?.targetCommit !== commit) continue;
+    if (record.kind !== "artifact.submitted") continue;
     try {
       verifyArtifact(repo, record.payload);
-      const content = git(repo, ["show", `${commit}:${record.payload.path}`]).toString("utf8");
+      const content = git(repo, ["show", `${record.payload.targetCommit}:${record.payload.path}`]).toString("utf8");
       const gaps = validateArtifactStructure(record.payload.artifactId, content);
       if (gaps.length) throw new Error(`artifact構造が不足しています: ${gaps.join(", ")}`);
       verifiedRecordIds.push(record.recordId);

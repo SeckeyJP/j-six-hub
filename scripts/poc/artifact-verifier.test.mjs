@@ -53,4 +53,18 @@ describe("Git artifact verifier", () => {
     expect(snapshot.verifiedRecordIds).toEqual([]);
     expect(snapshot.invalidRecords[0]?.reason).toMatch(/構造|REQ-/);
   });
+
+  it("rechecks older committed artifacts while projecting a newer target commit", async () => {
+    const { root, commit, sha256 } = await fixture();
+    await writeFile(join(root, "next.md"), "later synthetic change\n");
+    const env = { ...process.env, GIT_AUTHOR_NAME: "PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
+      GIT_COMMITTER_NAME: "PoC", GIT_COMMITTER_EMAIL: "poc@localhost" };
+    execFileSync("git", ["-C", root, "add", "next.md"], { env });
+    execFileSync("git", ["-C", root, "commit", "-qm", "next"], { env });
+    const current = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { env, encoding: "utf8" }).trim();
+    const prior = { recordId: "constitution-old", kind: "artifact.submitted", payload: {
+      artifactId: "constitution", targetCommit: commit, path: "constitution.md", sha256,
+    } };
+    expect(verifiedSnapshot(root, [prior], current).verifiedRecordIds).toContain("constitution-old");
+  });
 });

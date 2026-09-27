@@ -25,7 +25,30 @@ const created = {
   payload: { processSha256, policySha256, targetCommit: artifactCommit, fixtureId: "approval-workflow" },
 };
 
+/** @param {string} id @param {string} from @param {string} to @param {string[]} artifactRecordIds
+ * @param {string|null=} reviewRecordId @param {string[]=} decisionRecordIds */
+const transitioned = (id, from, to, artifactRecordIds, reviewRecordId = null, decisionRecordIds = []) => ({
+  schemaVersion: 1, recordId: id, projectId: "sample", kind: "phase.transitioned",
+  recordedAt: "2026-09-27T00:00:00.000Z",
+  payload: { from, to, generation: 0, subjectCommit: artifactCommit, policySha256,
+    artifactRecordIds, reviewRecordId, decisionRecordIds },
+});
+
 const snapshot = { commit: artifactCommit, verifiedRecordIds: ["constitution", "req", "flow", "req-v2"] };
+
+/** @returns {any[]} */
+function p1ReadyRecords() {
+  return [created, submitted("constitution", "P0", "constitution"),
+    transitioned("to-p1", "P0", "P1", ["constitution"]),
+    submitted("req", "P1", "requirement_spec"), submitted("flow", "P1", "business_flow_prototype"),
+    { schemaVersion: 1, recordId: "review", projectId: "sample", kind: "phase.review_requested",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { phase: "P1", generation: 0,
+        artifactRecordIds: ["req", "flow"], policySha256 } },
+    { schemaVersion: 1, recordId: "decision", projectId: "sample", kind: "gate.local_decision",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { gateId: "customer_approval", phase: "P1", generation: 0,
+        reviewRecordId: "review", outcome: "approved", simulated: true, role: "customer", reason: "合成",
+        expiresAt: "2026-12-31T00:00:00.000Z" } }];
+}
 
 describe("process projection", () => {
   it("validates the pinned process and gets gates from its data", () => {
@@ -57,10 +80,9 @@ describe("process projection", () => {
 
   it("requires current submitted artifacts, review request and simulated gate decision in P1", () => {
     /** @type {any[]} */
-    const records = [created, submitted("constitution", "P0", "constitution"), {
-      schemaVersion: 1, recordId: "to-p1", projectId: "sample", kind: "phase.transitioned",
-      recordedAt: "2026-09-27T00:00:00.000Z", payload: { from: "P0", to: "P1", generation: 0 },
-    }, submitted("req", "P1", "requirement_spec"), submitted("flow", "P1", "business_flow_prototype")];
+    const records = [created, submitted("constitution", "P0", "constitution"),
+      transitioned("to-p1", "P0", "P1", ["constitution"]),
+      submitted("req", "P1", "requirement_spec"), submitted("flow", "P1", "business_flow_prototype")];
     const before = evaluateProject(records, process, policySha256, snapshot);
     expect(before.canTransition).toBe(false);
     expect(before.missing).toContain("review:P1");
@@ -87,23 +109,19 @@ describe("process projection", () => {
 
   it("never treats the unimplemented P4 checks as passed", () => {
     const records = [created, submitted("constitution", "P0", "constitution"),
-      { schemaVersion: 1, recordId: "fake-p4", projectId: "sample", kind: "phase.transitioned",
-        recordedAt: "2026-09-27T00:00:00.000Z", payload: { from: "P0", to: "P4", generation: 0 } }];
+      transitioned("fake-p4", "P0", "P4", ["constitution"])];
     expect(() => evaluateProject(records, process, policySha256, snapshot)).toThrow(/遷移/);
   });
 
   it("rejects a structurally ordered transition without prior phase evidence", () => {
-    const records = [created, { schemaVersion: 1, recordId: "forged", projectId: "sample",
-      kind: "phase.transitioned", recordedAt: "2026-09-27T00:00:00.000Z",
-      payload: { from: "P0", to: "P1", generation: 0 } }];
+    const records = [created, transitioned("forged", "P0", "P1", ["constitution"])];
     expect(() => evaluateProject(records, process, policySha256, snapshot)).toThrow(/証拠|提出/);
   });
 
   it("keeps P1 blocked when a decision expired or its review was superseded", () => {
     /** @type {any[]} */
     const records = [created, submitted("constitution", "P0", "constitution"),
-      { schemaVersion: 1, recordId: "to-p1", projectId: "sample", kind: "phase.transitioned",
-        recordedAt: "2026-09-27T00:00:00.000Z", payload: { from: "P0", to: "P1", generation: 0 } },
+      transitioned("to-p1", "P0", "P1", ["constitution"]),
       submitted("req", "P1", "requirement_spec"), submitted("flow", "P1", "business_flow_prototype"),
       { schemaVersion: 1, recordId: "review", projectId: "sample", kind: "phase.review_requested",
         recordedAt: "2026-09-27T00:00:00.000Z", payload: { phase: "P1", generation: 0,
@@ -122,8 +140,7 @@ describe("process projection", () => {
   it("moves through an approved P1 and invalidates prior approval after reopening", () => {
     /** @type {any[]} */
     const records = [created, submitted("constitution", "P0", "constitution"),
-      { schemaVersion: 1, recordId: "to-p1", projectId: "sample", kind: "phase.transitioned",
-        recordedAt: "2026-09-27T00:00:00.000Z", payload: { from: "P0", to: "P1", generation: 0 } },
+      transitioned("to-p1", "P0", "P1", ["constitution"]),
       submitted("req", "P1", "requirement_spec"), submitted("flow", "P1", "business_flow_prototype"),
       { schemaVersion: 1, recordId: "review", projectId: "sample", kind: "phase.review_requested",
         recordedAt: "2026-09-27T00:00:00.000Z", payload: { phase: "P1", generation: 0,
@@ -132,8 +149,7 @@ describe("process projection", () => {
         recordedAt: "2026-09-27T00:00:00.000Z", payload: { gateId: "customer_approval", phase: "P1", generation: 0,
           reviewRecordId: "review", outcome: "approved", simulated: true, role: "customer", reason: "合成",
           expiresAt: "2026-12-31T00:00:00.000Z" } },
-      { schemaVersion: 1, recordId: "to-p2", projectId: "sample", kind: "phase.transitioned",
-        recordedAt: "2026-09-27T12:00:00.000Z", payload: { from: "P1", to: "P2", generation: 0 } }];
+      transitioned("to-p2", "P1", "P2", ["req", "flow"], "review", ["decision"])];
     expect(evaluateProject(records, process, policySha256, snapshot).phase).toBe("P2");
     records.push({ schemaVersion: 1, recordId: "reopen", projectId: "sample", kind: "phase.reopened",
       recordedAt: "2026-09-27T13:00:00.000Z", payload: { phase: "P1", generation: 1, reason: "要求差戻し" } });
@@ -142,5 +158,88 @@ describe("process projection", () => {
     expect(reopened.generation).toBe(1);
     expect(reopened.canTransition).toBe(false);
     expect(reopened.missing).toContain("artifact:requirement_spec");
+  });
+
+  it("rejects a recorded transition when the historical artifact was not Git-verified", () => {
+    const history = [created, submitted("constitution", "P0", "constitution"),
+      transitioned("to-p1", "P0", "P1", ["constitution"])];
+    expect(() => evaluateProject(history, process, policySha256, { commit: artifactCommit, verifiedRecordIds: [] }))
+      .toThrow(/未検証|照合/);
+  });
+
+  it("compares decision expiry as instants and rejects invalid timestamps", () => {
+    const records = p1ReadyRecords();
+    records.at(-1).payload.expiresAt = "2026-09-27T13:00:00+09:00";
+    expect(evaluateProject(records, process, policySha256, snapshot, "2026-09-27T12:00:00.000Z").canTransition).toBe(false);
+    records.at(-1).payload.expiresAt = "2026-09-27T12:00:00.000Z";
+    expect(evaluateProject(records, process, policySha256, snapshot, "2026-09-27T12:00:00.000Z").canTransition).toBe(false);
+    records.at(-1).payload.expiresAt = "not-a-date";
+    expect(evaluateProject(records, process, policySha256, snapshot, "2026-09-27T12:00:00.000Z").canTransition).toBe(false);
+    records.at(-1).payload.expiresAt = "2026-12-31T00:00:00.000Z";
+    records.at(-1).recordedAt = "not-a-date";
+    expect(() => evaluateProject(records, process, policySha256, snapshot)).toThrow(/時刻|日時/);
+    records.at(-1).recordedAt = "2026-09-27T13:00:00.000Z";
+    expect(evaluateProject(records, process, policySha256, snapshot, "2026-09-27T12:00:00.000Z").canTransition).toBe(false);
+    records.at(-1).recordedAt = "2026-09-26T23:00:00.000Z";
+    expect(() => evaluateProject(records, process, policySha256, snapshot)).toThrow(/時刻|順序/);
+    expect(() => evaluateProject(p1ReadyRecords(), process, policySha256, snapshot, "not-a-date")).toThrow(/時刻|日時/);
+  });
+
+  it("requires explicit reopen before changing a passed phase or an unknown output", () => {
+    const records = p1ReadyRecords();
+    records.push(submitted("old-constitution-v2", "P0", "constitution"));
+    expect(() => evaluateProject(records, process, policySha256, snapshot)).toThrow(/現在Phase|逆戻り/);
+    const unknown = p1ReadyRecords();
+    unknown.push(submitted("wrong", "P1", "invented"));
+    expect(() => evaluateProject(unknown, process, policySha256, snapshot)).toThrow(/成果物|artifact/);
+    const wrongGeneration = p1ReadyRecords();
+    wrongGeneration.push(submitted("future", "P1", "requirement_spec", 1));
+    expect(() => evaluateProject(wrongGeneration, process, policySha256, snapshot)).toThrow(/世代/);
+  });
+
+  it("rejects a transition whose pinned artifact set does not match the submissions", () => {
+    const records = p1ReadyRecords();
+    records.push(transitioned("to-p2", "P1", "P2", ["req"], "review", ["decision"]));
+    expect(() => evaluateProject(records, process, policySha256, snapshot)).toThrow(/対象版|提出集合|証拠/);
+  });
+
+  it("keeps a completed transition replayable after its decision expires", () => {
+    const records = p1ReadyRecords();
+    records.at(-1).payload.expiresAt = "2026-09-28T00:00:00.000Z";
+    records.push(transitioned("to-p2", "P1", "P2", ["req", "flow"], "review", ["decision"]));
+    const state = evaluateProject(records, process, policySha256, snapshot, "2026-10-01T00:00:00.000Z");
+    expect(state.phase).toBe("P2");
+  });
+
+  it("reaches P4 through valid prior decisions but keeps every unimplemented task check blocked", () => {
+    /** @type {any[]} */
+    const records = p1ReadyRecords();
+    records.push(transitioned("to-p2", "P1", "P2", ["req", "flow"], "review", ["decision"]));
+    for (const id of ["design_spec", "adr", "working_prototype", "properties"]) records.push(submitted(id, "P2", id));
+    records.push({ schemaVersion: 1, recordId: "review-p2", projectId: "sample", kind: "phase.review_requested",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { phase: "P2", generation: 0,
+        artifactRecordIds: ["design_spec", "adr", "working_prototype", "properties"], policySha256 } });
+    records.push({ schemaVersion: 1, recordId: "decision-p2", projectId: "sample", kind: "gate.local_decision",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { gateId: "design_review", phase: "P2", generation: 0,
+        reviewRecordId: "review-p2", outcome: "approved", simulated: true, role: "architect", reason: "合成",
+        expiresAt: "2026-12-31T00:00:00.000Z" } });
+    records.push(transitioned("to-p3", "P2", "P3", ["design_spec", "adr", "working_prototype", "properties"],
+      "review-p2", ["decision-p2"]));
+    records.push(submitted("task_list", "P3", "task_list"), submitted("task_definition", "P3", "task_definition"));
+    records.push({ schemaVersion: 1, recordId: "review-p3", projectId: "sample", kind: "phase.review_requested",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { phase: "P3", generation: 0,
+        artifactRecordIds: ["task_list", "task_definition"], policySha256 } });
+    records.push({ schemaVersion: 1, recordId: "decision-p3", projectId: "sample", kind: "gate.local_decision",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { gateId: "task_approval", phase: "P3", generation: 0,
+        reviewRecordId: "review-p3", outcome: "approved", simulated: true, role: "gatekeeper", reason: "合成",
+        expiresAt: "2026-12-31T00:00:00.000Z" } });
+    records.push(transitioned("to-p4", "P3", "P4", ["task_list", "task_definition"], "review-p3", ["decision-p3"]));
+    const verifiedRecordIds = records.filter((item) => item.kind === "artifact.submitted").map((item) => item.recordId);
+    const state = evaluateProject(records, process, policySha256, { commit: artifactCommit, verifiedRecordIds });
+    expect(state.phase).toBe("P4");
+    expect(state.canTransition).toBe(false);
+    expect(state.missing).toContain("check:G1/build:unimplemented");
+    expect(state.missing).toContain("check:G4/evidence_pack:unimplemented");
+    expect(state.missing).toContain("check:G3/scope_judge:unimplemented");
   });
 });

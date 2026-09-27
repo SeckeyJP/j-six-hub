@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendRecord, initializeLedger, readLedger } from "./ledger.mjs";
@@ -27,6 +28,21 @@ function event(recordId, kind = "project.created") {
     recordedAt: "2026-09-27T00:00:00.000Z",
     payload: { processSha256: "a".repeat(64), policySha256: "b".repeat(64) },
   };
+}
+
+/** @param {string} root @param {string[]} args @param {string=} input */
+function git(root, args, input) {
+  return execFileSync("git", ["-C", root, ...args], { input, encoding: "utf8",
+    env: { ...process.env, GIT_AUTHOR_NAME: "PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
+      GIT_COMMITTER_NAME: "PoC", GIT_COMMITTER_EMAIL: "poc@localhost" } }).trim();
+}
+
+/** @param {string} root @param {string} oldHead @param {string|null} body */
+function forgeCommit(root, oldHead, body) {
+  const treeInput = body === null ? "" : `100644 blob ${git(root, ["hash-object", "-w", "--stdin"], body)}\trecord.json\n`;
+  const tree = git(root, ["mktree"], treeInput);
+  const commit = git(root, ["commit-tree", tree, "-p", oldHead], "forged\n");
+  git(root, ["update-ref", "refs/heads/poc-ledger", commit, oldHead]);
 }
 
 describe("private Git ledger", () => {
@@ -76,5 +92,52 @@ describe("private Git ledger", () => {
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect((await readLedger(root)).records).toHaveLength(1);
+  });
+
+  it("stops replay for a saved unknown schema, corrupt hash, or missing record", async () => {
+    for (const change of ["schema", "hash", "missing"]) {
+      const root = await fixture();
+      const state = await appendRecord(root, null, event("r1"));
+      const record = JSON.parse(git(root, ["show", `${state.head}:record.json`]));
+      if (change === "schema") record.schemaVersion = 2;
+      if (change === "hash") record.recordHash = "0".repeat(64);
+      forgeCommit(root, state.head, change === "missing" ? null : JSON.stringify(record));
+      await expect(readLedger(root)).rejects.toThrow();
+    }
+  });
+
+  it("retains the operation lock when Git updated the ref but reported failure", async () => {
+    const root = await fixture();
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const wrapper = join(root, "git");
+    await writeFile(wrapper, `#!/bin/sh\nif [ "$3" = "update-ref" ]; then\n  "$REAL_GIT" "$@"\n  exit 42\nfi\nexec "$REAL_GIT" "$@"\n`);
+    await chmod(wrapper, 0o700);
+    const originalPath = process.env.PATH;
+    const originalGit = process.env.REAL_GIT;
+    process.env.PATH = `${root}:${originalPath}`;
+    process.env.REAL_GIT = realGit;
+    try { await expect(appendRecord(root, null, event("r1"))).rejects.toThrow(/ref更新結果が不明/); }
+    finally { process.env.PATH = originalPath; if (originalGit === undefined) delete process.env.REAL_GIT;
+      else process.env.REAL_GIT = originalGit; }
+    expect((await readLedger(root)).records).toHaveLength(1);
+    expect(await readFile(join(root, ".git", "poc-operation.lock"), "utf8")).toBe("");
+    await expect(appendRecord(root, (await readLedger(root)).head, event("r2"))).rejects.toThrow(/lock/);
+  });
+
+  it("releases the operation lock after a known pre-ref write failure", async () => {
+    const root = await fixture();
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const wrapper = join(root, "git");
+    await writeFile(wrapper, `#!/bin/sh\nif [ "$3" = "hash-object" ]; then exit 42; fi\nexec "$REAL_GIT" "$@"\n`);
+    await chmod(wrapper, 0o700);
+    const originalPath = process.env.PATH;
+    const originalGit = process.env.REAL_GIT;
+    process.env.PATH = `${root}:${originalPath}`;
+    process.env.REAL_GIT = realGit;
+    try { await expect(appendRecord(root, null, event("r1"))).rejects.toThrow(); }
+    finally { process.env.PATH = originalPath; if (originalGit === undefined) delete process.env.REAL_GIT;
+      else process.env.REAL_GIT = originalGit; }
+    expect((await readLedger(root)).head).toBeNull();
+    await expect(access(join(root, ".git", "poc-operation.lock"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
