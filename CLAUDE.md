@@ -3,14 +3,14 @@
 > このファイルは Claude Code がセッション開始時に自動読込するプロジェクト憲法です。
 > J-SIX (Japanese SI Transformation) プロセスに基づいています。
 > J-SIX の `templates/claude-md/base.md` と `web-app.md` から作成しました。
-> Hub 自体を J-SIX で開発し、その記録をケーススタディにします（J-SIX `docs/control-plane/` の ADR を参照）。現行の公開物はリプレイ型サンプルです。別に単一 PC の中央実行型 PoC を設計していますが、まだ実装していません。
+> Hub 自体を J-SIX で開発し、その記録をケーススタディにします（J-SIX `docs/control-plane/` の ADR を参照）。現行の公開物はリプレイ型サンプルです。別に、単一 PC の中央実行型 PoC と開発者が Phase 0〜6 を進めるローカル画面を設計していますが、まだ実装していません。
 
 ---
 
 ## プロジェクト概要
 
-- **システム名**: J-SIX Hub（公開リプレイ型サンプル／未実装の単一 PC 中央実行 PoC）
-- **目的**: 公開リプレイは J-SIX 実行記録を再生して構想を説明する。単一 PC PoC は、Hub が合成タスクの投入と受入れを管理し、ローカル Codex／Claude Code CLI を起動する設計を検証する
+- **システム名**: J-SIX Hub（公開リプレイ型サンプル／未実装の単一 PC 中央実行・全工程 PoC）
+- **目的**: 公開リプレイは J-SIX 実行記録を再生して構想を説明する。単一 PC PoC は、開発者が合成案件を Phase 0〜6 まで進め、Hub が成果物・ゲート・AI 投入と受入れを管理する設計を検証する
 - **主要ステークホルダー**: 著者（H.Sekita / GitHub: SeckeyJP）、記事・論文の読者
 - **開発体制**: 著者1名 + AI 開発支援。PoC の作業 CLI は run ごとに Codex／Claude Code の一方を選ぶ
 - **J-SIX Stage**: Stage 3（J-SIX）
@@ -19,7 +19,7 @@
 ### 技術スタック
 
 - **公開リプレイの構成**: 静的 SPA、バックエンドなし、GitHub Pages で公開
-- **単一 PC PoC の構成**: ローカル制御プロセス、非公開 Git 記録先、作業用 worktree、CLI adapter、独立検査、localhost 読取画面を設計中。公開 Pages に実行機能を載せない
+- **単一 PC PoC の構成**: ローカル制御プロセス、非公開 Git 記録先、作業用 worktree、CLI adapter、独立検査、localhost 開発者ワークベンチ・中央監視を設計中。公開 Pages に実行機能を載せない
 - **言語・フレームワーク・テストツール**: TypeScript 6.0 / React 19 / Vite 8 / Vitest + Testing Library（[ADR-0002](docs/adr/0002-web-app-stack.md)）
 - **DB**: リプレイはなし（`data/events.jsonl` を読み込む）。PoC の正本も非公開のローカル Git とし、別 DB 正本を作らない
 - **CI/CD**: GitHub Actions
@@ -28,6 +28,7 @@
 
 - リプレイ要求／Design Spec: `docs/specs/requirement-spec.md`、`docs/specs/design-spec.md`
 - 単一 PC PoC 要求／Design Spec: `docs/specs/local-execution-requirement-spec.md`、`docs/specs/local-execution-design-spec.md`。独立レビュー後にコード着手
+- 全工程の開発者体験: `docs/specs/developer-journey-requirement-spec.md`、`docs/specs/developer-journey-design-spec.md`、`docs/adr/0008-developer-workbench.md`。単一runのSpecに追加する未実装の設計。これらも独立レビュー・gate通過後にコード着手
 - ADR（Hub 固有）: `docs/adr/`
 - 構想・決定事項（D1〜D9）: J-SIX リポジトリ `docs/control-plane/`
 - リプレイ用データ: `data/`（M3 で作成）
@@ -67,6 +68,7 @@ J-SIX `docs/control-plane/adr/` の ADR に従う。変更が必要だと考え�
 - **J-SIX は Hub に依存しない**。依存は Hub → J-SIX の一方向のみ
 - **`jsix-process.yaml` をコピーして独自に改変しない**。Phase・ゲートの表示は yaml から生成し、ハードコードしない
 - **公開リプレイであることを全画面に常時表示する**（「リプレイ（実際の AI は動作していません）」）。PoC の画面・データ源と混同しない
+- **ローカルPoCの開発者ワークベンチと中央監視を公開リプレイから分離する**。開発者の提出・模擬判断はHubの書込APIを経由し、同じGit台帳から投影する。単一利用者の模擬操作を正式な顧客承認と呼ばない
 - **リプレイの全イベントに provenance（`measured` 実測 / `reconstructed` 再構成）を付け、画面にも表示する**。PoC 実行イベントには実行経路・未検証範囲を別に記録する
 - 架空シナリオを作る場合は全イベントを `reconstructed` とし、画面上でも架空と明示する（受発注連携と Program。docs/adr/0003）
 - **単一 PC PoC のみ** J-SIX の[ADR-0009](https://github.com/SeckeyJP/j-six/blob/main/docs/control-plane/adr/0009-local-cli-execution-poc.md)に従う。Codex または Claude Code CLI のサブスクリプション認証を run ごとに使い、API キー・SDK・従量課金への自動切替をしない。Git に許可と実行要求を保存確認する前に起動しない。同一 OS ユーザーによる強い権限分離や承認の真正性を主張しない
@@ -75,7 +77,7 @@ J-SIX `docs/control-plane/adr/` の ADR に従う。変更が必要だと考え�
 
 ## スコープ外
 
-以下は公開リプレイでは作らない。単一 PC PoC に限る実行機能は、専用要求／Design Spec と ADR の独立レビューを通過してから着手する。
+以下は公開リプレイでは作らない。単一 PC PoC の実行機能・開発者操作画面は、それぞれの専用要求／Design Spec と ADR の独立レビューを通過してから着手する。
 
 - 公開ページからの実際の AI 実行
 - 独自の認証・権限管理、マルチテナント、複数ベンダー運用
