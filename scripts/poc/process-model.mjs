@@ -82,7 +82,7 @@ export function validateProcess(process, pinnedSha256) {
   return { phases, phaseIds, gates: gateByPhase, processCommit: process._source.tag };
 }
 
-/** @param {any[]} records @param {any} model @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[]}} snapshot */
+/** @param {any[]} records @param {any} model @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[],verifiedAtCommits:Record<string,string[]>,validTransitionRecordIds:string[]}} snapshot */
 function projectPosition(records, model, snapshot) {
   const first = records[0];
   if (first?.kind !== "project.created") throw new Error("project.createdが先頭にありません");
@@ -98,6 +98,8 @@ function projectPosition(records, model, snapshot) {
   let phase = model.phaseIds[0];
   let generation = 0;
   let previousTime = -Infinity;
+  /** @type {any[]} */
+  let activeTransitions = [];
   for (const [index, record] of records.entries()) {
     const recordedTime = instant(record.recordedAt);
     if (recordedTime < previousTime) throw new Error("record時刻の順序が不正です");
@@ -133,6 +135,14 @@ function projectPosition(records, model, snapshot) {
     }
     if (record.kind === "phase.transitioned") {
       if (snapshot.baseCommitVerified !== true) throw new Error("基準commitがGit未検証のため遷移履歴を再生できません");
+      if (!snapshot.validTransitionRecordIds.includes(record.recordId)) throw new Error("遷移時点のcommit系列が未検証です");
+      const atCommit = snapshot.verifiedAtCommits?.[record.payload?.subjectCommit];
+      if (!Array.isArray(atCommit)) throw new Error("遷移時点の対象Git commitを検証できません");
+      for (const previous of activeTransitions) {
+        if (previous.payload.artifactRecordIds.some((/** @type {string} */ id) => !atCommit.includes(id))) {
+          throw new Error("遷移時点で先行Phaseの過去成果物が変更されています");
+        }
+      }
       const next = model.phaseIds[model.phaseIds.indexOf(phase) + 1];
       if (record.payload?.from !== phase || record.payload.to !== next || record.payload.generation !== generation) {
         throw new Error(`定義外または古いPhase遷移です: ${phase}→${record.payload?.to}`);
@@ -176,6 +186,7 @@ function projectPosition(records, model, snapshot) {
         throw new Error(`Phase ${phase}には承認ゲートがありません`);
       }
       phase = next;
+      activeTransitions.push(record);
     }
     if (record.kind === "phase.reopened") {
       const target = record.payload?.phase;
@@ -185,6 +196,9 @@ function projectPosition(records, model, snapshot) {
       }
       phase = target;
       generation += 1;
+      const reopenIndex = model.phaseIds.indexOf(target);
+      activeTransitions = activeTransitions.filter((transition) =>
+        model.phaseIds.indexOf(transition.payload.from) < reopenIndex);
     }
   }
   return { phase, generation, first };
@@ -229,12 +243,14 @@ function gateGaps(gate, records, review, generation, now) {
 /**
  * Pure projection. The snapshot must come from a separate Git verifier; an unverified claim is never a pass.
  * @param {any[]} records @param {any} process @param {string} policySha256
- * @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[]}} snapshot @param {string=} now
+ * @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[],verifiedAtCommits:Record<string,string[]>,validTransitionRecordIds:string[]}} snapshot @param {string=} now
  */
 export function evaluateProject(records, process, policySha256, snapshot, now = new Date().toISOString()) {
   if (!Array.isArray(records) || !records.length) throw new Error("案件recordがありません");
   instant(now);
-  if (!snapshot || !Array.isArray(snapshot.verifiedRecordIds) || !Array.isArray(snapshot.currentRecordIds)) {
+  if (!snapshot || !Array.isArray(snapshot.verifiedRecordIds) || !Array.isArray(snapshot.currentRecordIds) ||
+    !snapshot.verifiedAtCommits || typeof snapshot.verifiedAtCommits !== "object" ||
+    !Array.isArray(snapshot.validTransitionRecordIds)) {
     throw new Error("対象Gitの履歴・現在版照合結果がありません");
   }
   const model = validateProcess(process, records[0]?.payload?.processSha256);

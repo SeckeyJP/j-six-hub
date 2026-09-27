@@ -44,9 +44,16 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
   if (typeof repoId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(repoId)) {
     throw new Error("対象repo IDが不正です");
   }
+  /** @type {string[]} */
   const verifiedRecordIds = [];
+  /** @type {string[]} */
   const currentRecordIds = [];
+  /** @type {{recordId:string,reason:string}[]} */
   const invalidRecords = [];
+  /** @type {Record<string, string[]>} */
+  const verifiedAtCommits = {};
+  /** @type {string[]} */
+  const validTransitionRecordIds = [];
   let baseCommitVerified = false;
   const baseline = records.find((record) => record.kind === "project.created")?.payload?.targetCommit;
   if (/^[0-9a-f]{40,64}$/.test(baseline)) {
@@ -69,12 +76,34 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
       if (gaps.length) throw new Error(`artifact構造が不足しています: ${gaps.join(", ")}`);
       verifiedRecordIds.push(record.recordId);
       try {
-        verifyArtifact(repo, { ...record.payload, targetCommit: commit });
+        if (record.payload.targetCommit !== commit) verifyArtifact(repo, { ...record.payload, targetCommit: commit });
         currentRecordIds.push(record.recordId);
       } catch { /* Historical evidence remains valid, but its current premise has changed. */ }
     } catch (error) {
       invalidRecords.push({ recordId: record.recordId, reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  return { repoId, commit, baseCommitVerified, verifiedRecordIds, currentRecordIds, invalidRecords };
+  let previousTransitionCommit = baseline;
+  for (const [index, record] of records.entries()) {
+    if (record.kind !== "phase.transitioned") continue;
+    const subjectCommit = record.payload?.subjectCommit;
+    if (!baseCommitVerified || !/^[0-9a-f]{40,64}$/.test(subjectCommit)) continue;
+    try {
+      const resolved = git(repo, ["rev-parse", "--verify", `${subjectCommit}^{commit}`]).toString("utf8").trim();
+      if (resolved !== subjectCommit) continue;
+      git(repo, ["merge-base", "--is-ancestor", previousTransitionCommit, subjectCommit]);
+      git(repo, ["merge-base", "--is-ancestor", subjectCommit, commit]);
+      verifiedAtCommits[subjectCommit] = records.slice(0, index).filter((item) =>
+        item.kind === "artifact.submitted" && verifiedRecordIds.includes(item.recordId) && (() => {
+          try {
+            return item.payload.targetCommit === subjectCommit ||
+              verifyArtifact(repo, { ...item.payload, targetCommit: subjectCommit });
+          } catch { return false; }
+        })()).map((item) => item.recordId);
+      previousTransitionCommit = subjectCommit;
+      validTransitionRecordIds.push(record.recordId);
+    } catch { /* Unverified transition commits are not replay evidence. */ }
+  }
+  return { repoId, commit, baseCommitVerified, verifiedRecordIds, currentRecordIds,
+    verifiedAtCommits, validTransitionRecordIds, invalidRecords };
 }

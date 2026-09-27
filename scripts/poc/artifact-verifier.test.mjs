@@ -34,7 +34,8 @@ describe("Git artifact verifier", () => {
       payload: { artifactId: "constitution", targetCommit: commit, path: "constitution.md", sha256 } };
     expect(verifyArtifact(root, submitted.payload)).toBe(true);
     expect(verifiedSnapshot(root, [submitted], commit, "approval-workflow")).toEqual({ repoId: "approval-workflow", commit,
-      baseCommitVerified: false, verifiedRecordIds: ["constitution-v1"], currentRecordIds: ["constitution-v1"], invalidRecords: [] });
+      baseCommitVerified: false, verifiedRecordIds: ["constitution-v1"], currentRecordIds: ["constitution-v1"],
+      verifiedAtCommits: {}, validTransitionRecordIds: [], invalidRecords: [] });
   });
 
   it("rejects wrong hashes, path traversal, and symlink entries", async () => {
@@ -134,5 +135,21 @@ describe("Git artifact verifier", () => {
     const snapshot = verifiedSnapshot(root, [record], commit, "approval-workflow");
     expect(snapshot.verifiedRecordIds).toEqual([]);
     expect(snapshot.invalidRecords[0]?.reason).toMatch(/task:allow|hold-out|required-checks/);
+  });
+
+  it("does not verify a transition that moves backward in the target Git history", async () => {
+    const { root, commit: baseline } = await fixture();
+    await writeFile(join(root, "later.md"), "later\n");
+    const env = { ...process.env, GIT_AUTHOR_NAME: "PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
+      GIT_COMMITTER_NAME: "PoC", GIT_COMMITTER_EMAIL: "poc@localhost" };
+    execFileSync("git", ["-C", root, "add", "later.md"], { env });
+    execFileSync("git", ["-C", root, "commit", "-qm", "later"], { env });
+    const current = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const records = [
+      { kind: "project.created", payload: { targetCommit: baseline } },
+      { kind: "phase.transitioned", recordId: "forward", payload: { subjectCommit: current } },
+      { kind: "phase.transitioned", recordId: "backward", payload: { subjectCommit: baseline } },
+    ];
+    expect(verifiedSnapshot(root, records, current, "approval-workflow").validTransitionRecordIds).toEqual(["forward"]);
   });
 });

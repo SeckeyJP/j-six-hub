@@ -36,7 +36,9 @@ const transitioned = (id, from, to, artifactRecordIds, reviewRecordId = null, de
 });
 
 const snapshot = { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds: ["constitution", "req", "flow", "req-v2"],
-  currentRecordIds: ["constitution", "req", "flow", "req-v2"], baseCommitVerified: true };
+  currentRecordIds: ["constitution", "req", "flow", "req-v2"], baseCommitVerified: true,
+  verifiedAtCommits: { [artifactCommit]: ["constitution", "req", "flow", "req-v2"] },
+  validTransitionRecordIds: ["to-p1", "to-p2", "to-p3", "to-p4", "fake-p4", "forged"] };
 
 /** @returns {any[]} */
 function p1ReadyRecords() {
@@ -238,7 +240,8 @@ describe("process projection", () => {
     records.push(transitioned("to-p4", "P3", "P4", ["task_list", "task_definition"], "review-p3", ["decision-p3"]));
     const verifiedRecordIds = records.filter((item) => item.kind === "artifact.submitted").map((item) => item.recordId);
     const state = evaluateProject(records, process, policySha256, { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds,
-      currentRecordIds: verifiedRecordIds, baseCommitVerified: true });
+      currentRecordIds: verifiedRecordIds, baseCommitVerified: true, verifiedAtCommits: { [artifactCommit]: verifiedRecordIds },
+      validTransitionRecordIds: ["to-p1", "to-p2", "to-p3", "to-p4"] });
     expect(state.phase).toBe("P4");
     expect(state.canTransition).toBe(false);
     expect(state.missing).toContain("check:G1/build:unimplemented");
@@ -259,7 +262,8 @@ describe("process projection", () => {
         expiresAt: "2026-12-31T00:00:00.000Z" } });
     const allIds = records.filter((item) => item.kind === "artifact.submitted").map((item) => item.recordId);
     const unrelated = { repoId: "approval-workflow", commit: artifactCommit, verifiedRecordIds: allIds,
-      currentRecordIds: allIds, baseCommitVerified: true };
+      currentRecordIds: allIds, baseCommitVerified: true, verifiedAtCommits: { [artifactCommit]: allIds },
+      validTransitionRecordIds: ["to-p1", "to-p2"] };
     expect(evaluateProject(records, process, policySha256, unrelated).canTransition).toBe(true);
     const changedRequirement = { ...unrelated, currentRecordIds: allIds.filter((id) => id !== "req") };
     const blocked = evaluateProject(records, process, policySha256, changedRequirement);
