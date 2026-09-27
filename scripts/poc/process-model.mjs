@@ -3,6 +3,8 @@ const commitId = /^[0-9a-f]{40,64}$/;
 const supportedKinds = new Set([
   "project.created", "artifact.submitted", "phase.review_requested", "gate.check_recorded",
   "gate.local_decision", "phase.transitioned", "phase.reopened",
+  "task.run_requested", "task.run_inspected", "task.accept_requested", "task.candidate_accepted",
+  "quality.check_requested", "deliverables.requested", "deliverables.generated", "phase.completed",
 ]);
 
 /** @param {string} value */
@@ -97,10 +99,12 @@ function projectPosition(records, model, snapshot) {
   const ids = new Set();
   let phase = model.phaseIds[0];
   let generation = 0;
+  let completionSeen = false;
   let previousTime = -Infinity;
   /** @type {any[]} */
   let activeTransitions = [];
   for (const [index, record] of records.entries()) {
+    if (completionSeen && record.kind !== "phase.reopened") throw new Error("完了後の操作には差戻しが必要です");
     const recordedTime = instant(record.recordedAt);
     if (recordedTime < previousTime) throw new Error("record時刻の順序が不正です");
     previousTime = recordedTime;
@@ -132,6 +136,19 @@ function projectPosition(records, model, snapshot) {
         record.payload?.gateId !== gate.id || !/** @type {any[]} */ (layer?.checks ?? []).some((item) => item.id === record.payload?.checkId)) {
         throw new Error("検査recordのPhase・ゲート・チェックが不正です");
       }
+    }
+    if (["task.run_requested", "task.run_inspected", "task.accept_requested", "task.candidate_accepted"].includes(record.kind) &&
+      (phase !== "P4" || record.payload?.phase !== phase || record.payload?.generation !== generation ||
+        typeof record.payload?.runId !== "string" || !record.payload.runId)) {
+      throw new Error("合成runのPhase・世代・IDが不正です");
+    }
+    if (record.kind === "quality.check_requested" &&
+      (phase !== "P5" || record.payload?.phase !== phase || record.payload?.generation !== generation)) {
+      throw new Error("品質検査要求のPhase・世代が不正です");
+    }
+    if (["deliverables.requested", "deliverables.generated"].includes(record.kind) &&
+      (phase !== "P6" || record.payload?.phase !== phase || record.payload?.generation !== generation)) {
+      throw new Error("納品物生成のPhase・世代が不正です");
     }
     if (record.kind === "phase.transitioned") {
       if (snapshot.baseCommitVerified !== true) throw new Error("基準commitがGit未検証のため遷移履歴を再生できません");
@@ -174,12 +191,16 @@ function projectPosition(records, model, snapshot) {
           gateGaps(gate, before, review, generation, record.recordedAt).length) {
           throw new Error(`Phase ${phase}のゲート証拠が不足しています`);
         }
-        const decisions = before.filter((item) => item.kind === "gate.local_decision" &&
-          item.payload?.gateId === gate.id && item.payload?.reviewRecordId === review.recordId &&
-          item.payload?.generation === generation && before.indexOf(item) > before.indexOf(review));
-        const latest = decisions.at(-1);
-        if (!latest || JSON.stringify(record.payload.decisionRecordIds) !== JSON.stringify([latest.recordId])) {
-          throw new Error(`Phase ${phase}の判断record参照が一致しません`);
+        if (gate.scope === "task") {
+          if (JSON.stringify(record.payload.decisionRecordIds) !== "[]") throw new Error("P4に人間判断はありません");
+        } else {
+          const decisions = before.filter((item) => item.kind === "gate.local_decision" &&
+            item.payload?.gateId === gate.id && item.payload?.reviewRecordId === review.recordId &&
+            item.payload?.generation === generation && before.indexOf(item) > before.indexOf(review));
+          const latest = decisions.at(-1);
+          if (!latest || JSON.stringify(record.payload.decisionRecordIds) !== JSON.stringify([latest.recordId])) {
+            throw new Error(`Phase ${phase}の判断record参照が一致しません`);
+          }
         }
       } else if (record.payload.reviewRecordId !== null ||
         JSON.stringify(record.payload.decisionRecordIds) !== "[]") {
@@ -196,9 +217,36 @@ function projectPosition(records, model, snapshot) {
       }
       phase = target;
       generation += 1;
+      completionSeen = false;
       const reopenIndex = model.phaseIds.indexOf(target);
       activeTransitions = activeTransitions.filter((transition) =>
         model.phaseIds.indexOf(transition.payload.from) < reopenIndex);
+    }
+    if (record.kind === "phase.completed") {
+      const before = records.slice(0, index);
+      const submissions = before.filter((item) => item.kind === "artifact.submitted" &&
+        item.payload?.phase === phase && item.payload?.generation === generation);
+      const outputIds = /** @type {string[]} */ (source.outputs);
+      const active = outputIds.map((artifactId) => [...submissions].reverse().find((item) =>
+        item.payload?.artifactId === artifactId));
+      const review = [...before].reverse().find((item) => item.kind === "phase.review_requested" &&
+        item.payload?.phase === phase && item.payload?.generation === generation);
+      const decision = [...before].reverse().find((item) => item.kind === "gate.local_decision" &&
+        item.payload?.reviewRecordId === review?.recordId);
+      if (phase !== model.phaseIds.at(-1) || record.payload?.phase !== phase ||
+        record.payload?.generation !== generation ||
+        !snapshot.validCompletionRecordIds?.includes(record.recordId) ||
+        !review || !decision || decision.payload.outcome !== "approved" ||
+        gateGaps(gate, before, review, generation, record.recordedAt).length ||
+        active.some((item) => !item || !snapshot.verifiedRecordIds.includes(item.recordId) ||
+          item.payload.targetCommit !== record.payload.subjectCommit) ||
+        JSON.stringify(record.payload.artifactRecordIds) !== JSON.stringify(active.map((item) => item.recordId).sort()) ||
+        record.payload.reviewRecordId !== review.recordId ||
+        record.payload.decisionRecordId !== decision.recordId ||
+        record.payload.policySha256 !== first.payload.policySha256) {
+        throw new Error("最終完了記録の証拠が不正です");
+      }
+      completionSeen = true;
     }
   }
   return { phase, generation, first };
@@ -208,13 +256,37 @@ function projectPosition(records, model, snapshot) {
 function gateGaps(gate, records, review, generation, now) {
   if (!gate) return [];
   const layers = /** @type {any[]} */ (gate.layers);
-  if (gate.scope === "task") return layers.flatMap((layer) => /** @type {any[]} */ (layer.checks)
-    .map((check) => `check:${layer.id}/${check.id}:unimplemented`));
+  if (gate.scope === "task") {
+    const accepted = [...records].reverse().find((item) => item.kind === "task.candidate_accepted" &&
+      item.payload?.generation === generation);
+    const missing = [];
+    if (!accepted) missing.push("task:candidate-not-accepted");
+    for (const layer of layers) for (const check of layer.checks) {
+      const result = [...records].reverse().find((item) => item.kind === "gate.check_recorded" &&
+        item.payload?.gateId === gate.id && item.payload?.generation === generation &&
+        item.payload?.layerId === layer.id && item.payload?.checkId === check.id &&
+        item.payload?.runId === accepted?.payload?.runId);
+      const target = layer.id === "G4" ? accepted?.payload?.evidenceCommit : accepted?.payload?.candidateCommit;
+      if (!result || result.payload?.subjectCommit !== target ||
+        (layer.id === "G3" ? result.payload?.result !== "omitted" : result.payload?.result !== "passed")) {
+        missing.push(`check:${layer.id}/${check.id}:missing-or-failed`);
+      }
+    }
+    return missing;
+  }
   const missing = [];
   for (const layer of layers) {
     for (const check of layer.checks) {
       if (check.kind !== "human_approval") {
-        missing.push(`check:${check.id}:unimplemented`);
+        const result = [...records].reverse().find((item) => item.kind === "gate.check_recorded" &&
+          item.payload?.gateId === gate.id && item.payload?.generation === generation &&
+          item.payload?.checkId === check.id);
+        const currentArtifact = [...records].reverse().find((item) => item.kind === "artifact.submitted" &&
+          item.payload?.phase === gate.phase && item.payload?.generation === generation);
+        if (!result || result.payload?.result !== "passed" ||
+          result.payload?.subjectCommit !== currentArtifact?.payload?.targetCommit) {
+          missing.push(`check:${check.id}:missing-or-failed`);
+        }
         continue;
       }
       const reviewIndex = review ? records.findIndex((item) => item.recordId === review.recordId) : -1;
@@ -302,7 +374,14 @@ export function evaluateProject(records, process, policySha256, snapshot, now = 
     }
     missing.push(...gateGaps(gate, records, review, generation, now));
   }
-  if (!nextPhase) missing.push("phase:final");
+  const hasCompletion = !nextPhase && records.some((item) => item.kind === "phase.completed" &&
+    item.payload?.phase === phase && item.payload?.generation === generation);
+  const completed = !nextPhase && records.some((item) => item.kind === "phase.completed" &&
+    item.payload?.phase === phase && item.payload?.generation === generation &&
+    item.payload?.subjectCommit === snapshot.commit);
+  const canComplete = !nextPhase && missing.length === 0 && !hasCompletion;
+  if (hasCompletion && !completed) missing.push("completion:target-changed-reopen-required");
+  if (!nextPhase && !completed) missing.push("phase:final");
   return { projectId: first.projectId, phase, generation, nextPhase, gate: gate?.id ?? null,
-    canTransition: missing.length === 0, missing: [...new Set(missing)] };
+    canTransition: !!nextPhase && missing.length === 0, canComplete, completed, missing: [...new Set(missing)] };
 }

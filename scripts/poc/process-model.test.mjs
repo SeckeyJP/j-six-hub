@@ -111,7 +111,7 @@ describe("process projection", () => {
     expect(policy.missing).toContain("policy:changed");
   });
 
-  it("never treats the unimplemented P4 checks as passed", () => {
+  it("never treats a forged P4 transition as passed", () => {
     const records = [created, submitted("constitution", "P0", "constitution"),
       transitioned("fake-p4", "P0", "P4", ["constitution"])];
     expect(() => evaluateProject(records, process, policySha256, snapshot)).toThrow(/遷移/);
@@ -215,7 +215,7 @@ describe("process projection", () => {
     expect(state.phase).toBe("P2");
   });
 
-  it("reaches P4 through valid prior decisions but keeps every unimplemented task check blocked", () => {
+  it("reaches P4 through valid prior decisions but requires every task check", () => {
     /** @type {any[]} */
     const records = p1ReadyRecords();
     records.push(transitioned("to-p2", "P1", "P2", ["req", "flow"], "review", ["decision"]));
@@ -244,9 +244,9 @@ describe("process projection", () => {
       validTransitionRecordIds: ["to-p1", "to-p2", "to-p3", "to-p4"] });
     expect(state.phase).toBe("P4");
     expect(state.canTransition).toBe(false);
-    expect(state.missing).toContain("check:G1/build:unimplemented");
-    expect(state.missing).toContain("check:G4/evidence_pack:unimplemented");
-    expect(state.missing).toContain("check:G3/scope_judge:unimplemented");
+    expect(state.missing).toContain("check:G1/build:missing-or-failed");
+    expect(state.missing).toContain("check:G4/evidence_pack:missing-or-failed");
+    expect(state.missing).toContain("check:G3/scope_judge:missing-or-failed");
   });
 
   it("blocks a later phase when a passed artifact changed, but accepts unrelated edits", () => {

@@ -4,7 +4,7 @@ import { localPolicy, localPolicySha256, validateArtifactStructure } from "./pol
 describe("versioned local PoC policy", () => {
   it("has a stable version and fingerprint separate from J-SIX process", () => {
     expect(localPolicy.schemaVersion).toBe(1);
-    expect(localPolicy.id).toBe("single-pc-developer-journey-v5");
+    expect(localPolicy.id).toBe("single-pc-developer-journey-v6");
     expect(localPolicySha256).toMatch(/^[0-9a-f]{64}$/);
     expect(localPolicy.artifactRules).toHaveProperty("requirement_spec");
   });

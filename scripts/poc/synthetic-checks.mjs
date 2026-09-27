@@ -70,7 +70,7 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
   const code = await readFile(join(worktree, "src/approval.mjs"), "utf8");
   const unit = await readFile(join(worktree, "tests/approval.test.mjs"), "utf8");
   const holdout = await readFile(join(worktree, "tests/holdout.test.mjs"), "utf8");
-  const source = "hub-fixed-synthetic-checks-v1";
+  const source = "hub-fixed-synthetic-checks-v2";
   /** @type {{layer:string,id:string,result:string,source:string,subjectCommit:string,evidenceSha256:string}[]} */
   const checks = [];
   /** @param {string} layer @param {string} id @param {boolean} passed @param {string} evidence */
@@ -81,7 +81,7 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
   const build = run(worktree, process.execPath, ["--check", "src/approval.mjs"]);
   record("G1", "build", build.ok, build.output);
   const typecheck = run(worktree, process.execPath, [join(hubRoot, "node_modules/typescript/bin/tsc"),
-    "--noEmit", "--allowJs", "--checkJs", "--strict", "--skipLibCheck", "--module", "NodeNext",
+    "--ignoreConfig", "--noEmit", "--allowJs", "--checkJs", "--strict", "--skipLibCheck", "--module", "NodeNext",
     "--moduleResolution", "NodeNext", "--target", "ES2022", "src/approval.mjs"]);
   record("G1", "typecheck", typecheck.ok, typecheck.output);
   const lint = run(worktree, process.execPath, [join(hubRoot, "node_modules/eslint/bin/eslint.js"),

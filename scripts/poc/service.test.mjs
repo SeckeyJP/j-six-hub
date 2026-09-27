@@ -107,12 +107,12 @@ describe("localhost service commands", () => {
     result = await service.execute({ type: "phase.transition", ...common(result.head, projectId, 0, commit) });
     expect(result.project.phase).toBe("P4");
     expect(result.project.canTransition).toBe(false);
-    expect(result.project.missing.some((reason) => reason.includes("unimplemented"))).toBe(true);
+    expect(result.project.missing).toContain("task:candidate-not-accepted");
     const restored = createPocService({ ledgerRoot, process: processDefinition, fixtures: { synthetic: { repo, repoId: "synthetic" } } });
     await restored.initialize();
     expect((await restored.detail(projectId)).project.phase).toBe("P4");
     await expect(restored.execute({ type: "phase.transition", ...common(result.head, projectId, 0, commit) }))
-      .rejects.toThrow(/未実装/);
+      .rejects.toThrow(/遷移条件/);
     result = await restored.execute({ type: "phase.reopen", ...common(result.head, projectId, 0, commit),
       phase: "P3", reason: "Synthetic task revision" });
     expect(result.project.phase).toBe("P3");
@@ -297,7 +297,7 @@ describe("localhost service commands", () => {
   }, 60_000);
 
   it("records a fixed fake TDD run and real G1/G2 checks before candidate acceptance", async () => {
-    const { service, commit, content, repo } = await fixture();
+    const { service, commit, content, repo, ledgerRoot } = await fixture();
     let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
       expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
     const id = result.project.projectId;
@@ -328,5 +328,60 @@ describe("localhost service commands", () => {
     expect(generated.run.checks.every((item) => item.result === "passed")).toBe(true);
     expect(generated.project.phase).toBe("P4");
     expect(git(repo, ["rev-parse", "HEAD"])).toBe(commit);
-  }, 180_000);
+    const accepted = await service.acceptCandidate({ ...common(generated.head, id, 0, commit),
+      runId: generated.run.runId });
+    expect(accepted.project.phase).toBe("P4");
+    expect(git(repo, ["rev-parse", "HEAD"])).toBe(accepted.candidateCommit);
+    expect(accepted.project.targetCommit).toBe(accepted.candidateCommit);
+    expect(accepted.project.missing.some((reason) => reason.includes("unimplemented"))).toBe(false);
+    let current = /** @type {{head:string,project:any}} */ (accepted);
+    for (const [artifactId, path] of /** @type {[string,string][]} */ ([
+      ["holdout_tests", "tests/holdout.test.mjs"], ["tests", "tests/approval.test.mjs"],
+      ["code", "src/approval.mjs"], ["evidence_pack", "docs/evidence-pack.json"],
+    ])) {
+      current = await service.execute({ type: "artifact.submit", ...common(current.head, id, 0, accepted.candidateCommit),
+        artifactId, path, sha256: hash(readFileSync(join(repo, path), "utf8")) });
+    }
+    current = await service.execute({ type: "review.request", ...common(current.head, id, 0, accepted.candidateCommit) });
+    expect(current.project.canTransition).toBe(true);
+    current = await service.execute({ type: "phase.transition", ...common(current.head, id, 0, accepted.candidateCommit) });
+    expect(current.project.phase).toBe("P5");
+    const quality = await service.runIntegration(common(current.head, id, 0, current.project.targetCommit));
+    expect(quality.integration.result).toBe("passed");
+    current = await service.execute({ type: "artifact.submit", ...common(quality.head, id, 0, quality.project.targetCommit),
+      artifactId: "quality_metrics", path: "docs/quality-metrics.md",
+      sha256: hash(readFileSync(join(repo, "docs/quality-metrics.md"), "utf8")) });
+    current = await service.execute({ type: "review.request", ...common(current.head, id, 0, current.project.targetCommit) });
+    current = await service.execute({ type: "decision.record", ...common(current.head, id, 0, current.project.targetCommit),
+      outcome: "approved", role: "gatekeeper", reason: "Synthetic quality judgement with gaps",
+      expiresAt: "2099-01-01T00:00:00.000Z" });
+    expect(current.project.canTransition).toBe(true);
+    current = await service.execute({ type: "phase.transition", ...common(current.head, id, 0, current.project.targetCommit) });
+    expect(current.project.phase).toBe("P6");
+    const delivery = await service.prepareDeliverables(common(current.head, id, 0, current.project.targetCommit));
+    current = await service.execute({ type: "artifact.submit", ...common(delivery.head, id, 0, delivery.project.targetCommit),
+      artifactId: "reverse_generated_docs", path: "docs/reverse-generated.md",
+      sha256: hash(readFileSync(join(repo, "docs/reverse-generated.md"), "utf8")) });
+    current = await service.execute({ type: "review.request", ...common(current.head, id, 0, current.project.targetCommit) });
+    current = await service.execute({ type: "decision.record", ...common(current.head, id, 0, current.project.targetCommit),
+      outcome: "approved", role: "customer", reason: "Synthetic deliverable review only",
+      expiresAt: "2099-01-01T00:00:00.000Z" });
+    expect(current.project.canComplete).toBe(true);
+    current = await service.execute({ type: "phase.complete", ...common(current.head, id, 0, current.project.targetCommit) });
+    expect(current.project.completed).toBe(true);
+    const restored = createPocService({ ledgerRoot, process: processDefinition,
+      fixtures: { synthetic: { repo, repoId: "synthetic" } } });
+    await restored.initialize();
+    expect((await restored.detail(id)).project.completed).toBe(true);
+    await writeFile(join(repo, "after-completion.md"), "Synthetic later change\n");
+    git(repo, ["add", "after-completion.md"]); git(repo, ["commit", "-qm", "later synthetic change"]);
+    const changed = await restored.detail(id);
+    expect(changed.project.completed).toBe(false);
+    expect(changed.project.missing).toContain("completion:target-changed-reopen-required");
+    const reopened = await restored.execute({ type: "phase.reopen",
+      ...common(changed.head, id, 0, changed.project.targetCommit), phase: "P5",
+      reason: "Revalidate after completion change" });
+    expect(reopened.project.phase).toBe("P5");
+    expect(reopened.project.generation).toBe(1);
+  }, 300_000);
 });

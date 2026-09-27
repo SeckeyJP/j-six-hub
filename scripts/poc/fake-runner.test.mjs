@@ -62,4 +62,45 @@ describe("synthetic TDD worktree", () => {
       taskDefinition: "TASK-001: bounded approval\nallow: src/**\ndeny: tests/holdout.test.mjs\n",
       requirementSpec: "REQ-001: bounded approval\n" })).rejects.toThrow(/候補HEAD/);
   }, 30_000);
+
+  it("rejects a passing candidate that weakens the previously fixed hold-out", async () => {
+    const root = await mkdtemp(join(tmpdir(), "jsix-tamper-run-")); roots.push(root);
+    const repo = join(root, "fixture"); await mkdir(repo); await mkdir(join(repo, "src"));
+    git(repo, ["init", "-q"]);
+    await writeFile(join(repo, "src/approval.mjs"), "export function approve(amount, limit) { return false; }\n");
+    git(repo, ["add", "."]); git(repo, ["commit", "-qm", "stub baseline"]);
+    const baseline = git(repo, ["rev-parse", "HEAD"]);
+    const worktreeRoot = join(root, "runs");
+    const original = await runSyntheticTdd({ repo, worktreeRoot, runId: "original", baseCommit: baseline });
+    const green = original.steps[2]?.commit;
+    if (!green) throw new Error("Green commit missing");
+    const tampered = join(worktreeRoot, "tampered");
+    git(repo, ["worktree", "add", "--detach", tampered, green]);
+    const finalCode = git(join(worktreeRoot, "original"), ["show", `${original.candidateCommit}:src/approval.mjs`]) + "\n";
+    await writeFile(join(tampered, "src/approval.mjs"), finalCode);
+    await writeFile(join(tampered, "tests/holdout.test.mjs"),
+      "import { test } from \"node:test\";\ntest(\"REQ-001 / PROP-001: weak hold-out\", () => {});\n");
+    git(tampered, ["add", "."]); git(tampered, ["commit", "-qm", "weaken hold-out"]);
+    const candidateCommit = git(tampered, ["rev-parse", "HEAD"]);
+    const run = { ...original, runId: "tampered", candidateCommit,
+      steps: [...original.steps.slice(0, 3), { id: "refactor", commit: candidateCommit,
+        test: { status: "passed", failureCode: null } }] };
+    const result = await inspectSyntheticCandidate({ repo, worktreeRoot, run,
+      taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/**\ndeny: secrets/**\nhold-out: tests/holdout.test.mjs\nrequired-checks: unit,lint\n",
+      requirementSpec: "REQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n" });
+    expect(result.checks.find((check) => check.id === "test_tamper")?.result).toBe("failed");
+  }, 30_000);
+
+  it("does not call an already green baseline a Red step", async () => {
+    const root = await mkdtemp(join(tmpdir(), "jsix-not-red-")); roots.push(root);
+    const repo = join(root, "fixture"); await mkdir(repo); await mkdir(join(repo, "src"));
+    git(repo, ["init", "-q"]);
+    await writeFile(join(repo, "src/approval.mjs"),
+      "export function approve(amount, limit) { return amount >= 0 && amount <= limit; }\n");
+    git(repo, ["add", "."]); git(repo, ["commit", "-qm", "already green baseline"]);
+    const baseline = git(repo, ["rev-parse", "HEAD"]);
+    await expect(runSyntheticTdd({ repo, worktreeRoot: join(root, "runs"),
+      runId: "already-green", baseCommit: baseline })).rejects.toThrow(/Red失敗/);
+    expect(git(repo, ["rev-parse", "HEAD"])).toBe(baseline);
+  }, 30_000);
 });

@@ -54,6 +54,8 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
   const verifiedAtCommits = {};
   /** @type {string[]} */
   const validTransitionRecordIds = [];
+  /** @type {string[]} */
+  const validCompletionRecordIds = [];
   /** @type {Map<string,string>} */
   const verifiedContent = new Map();
   let baseCommitVerified = false;
@@ -123,6 +125,17 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
       validTransitionRecordIds.push(record.recordId);
     } catch { /* Unverified transition commits are not replay evidence. */ }
   }
+  for (const record of records) {
+    if (record.kind !== "phase.completed") continue;
+    const subject = record.payload?.subjectCommit;
+    if (!baseCommitVerified || !/^[0-9a-f]{40,64}$/.test(subject)) continue;
+    try {
+      if (git(repo, ["rev-parse", "--verify", `${subject}^{commit}`]).toString("utf8").trim() !== subject) continue;
+      git(repo, ["merge-base", "--is-ancestor", baseline, subject]);
+      git(repo, ["merge-base", "--is-ancestor", subject, commit]);
+      validCompletionRecordIds.push(record.recordId);
+    } catch { /* A missing or unrelated completion is not replay evidence. */ }
+  }
   return { repoId, commit, baseCommitVerified, verifiedRecordIds, currentRecordIds,
-    verifiedAtCommits, validTransitionRecordIds, invalidRecords };
+    verifiedAtCommits, validTransitionRecordIds, validCompletionRecordIds, invalidRecords };
 }

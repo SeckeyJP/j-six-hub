@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 // These are additional checks for the synthetic local PoC, not gates added to the J-SIX definition.
 export const localPolicy = Object.freeze({
   schemaVersion: 1,
-  id: "single-pc-developer-journey-v5",
+  id: "single-pc-developer-journey-v6",
   artifactRules: {
     requirement_spec: ["REQ-", "AC-", "PROP-", "受入条件", "非機能", "未確定"],
     design_spec: ["検証戦略", "設計書目次"],
@@ -12,7 +12,9 @@ export const localPolicy = Object.freeze({
     quality_metrics: ["要求充足", "欠陥", "未検証"],
     reverse_generated_docs: ["逆生成", "納品物"],
   },
-  unimplementedChecks: ["task_quality_gate", "integration_tests"],
+  syntheticTaskLimit: 1,
+  g3: { syntheticOmissionAllowed: true, outcome: "omitted", maximumAutonomy: "L3" },
+  syntheticIntegration: "node-test-fixed-fixture-v1",
   simulatedHumanDecision: true,
 });
 

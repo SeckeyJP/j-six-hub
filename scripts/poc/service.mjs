@@ -1,15 +1,25 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { realpath } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { appendRecord, initializeLedger, readLedger } from "./ledger.mjs";
 import { verifyArtifact, verifiedSnapshot } from "./artifact-verifier.mjs";
 import { evaluateProject, validateProcess } from "./process-model.mjs";
 import { localPolicySha256 } from "./policy.mjs";
+import { runSyntheticTdd } from "./fake-runner.mjs";
+import { inspectSyntheticCandidate } from "./synthetic-checks.mjs";
 
 const commitPattern = /^[0-9a-f]{40,64}$/;
 const hashPattern = /^[0-9a-f]{64}$/;
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
-const writablePhases = new Set(["P0", "P1", "P2", "P3"]);
+const writablePhases = new Set(["P0", "P1", "P2", "P3", "P4", "P5", "P6"]);
+const artifactPaths = Object.freeze({ constitution: "constitution.md", requirement_spec: "requirement.md",
+  business_flow_prototype: "flow.md", design_spec: "design.md", adr: "adr.md",
+  working_prototype: "prototype.md", properties: "properties.md", task_list: "tasks.md",
+  task_definition: "task.md", holdout_tests: "tests/holdout.test.mjs",
+  tests: "tests/approval.test.mjs", code: "src/approval.mjs",
+  evidence_pack: "docs/evidence-pack.json", quality_metrics: "docs/quality-metrics.md",
+  reverse_generated_docs: "docs/reverse-generated.md" });
 
 /** @param {string} repo @param {string[]} args */
 function git(repo, args) {
@@ -22,6 +32,8 @@ function head(repo) {
   if (!commitPattern.test(value)) throw new Error("対象Git HEADが不正です");
   return value;
 }
+/** @param {string | Buffer} value */
+const sha = (value) => createHash("sha256").update(value).digest("hex");
 
 /** @param {any[]} records @param {string} projectId */
 function recordsFor(records, projectId) {
@@ -38,6 +50,26 @@ function latest(records, kind, phase, generation) {
 function activeArtifacts(records, phase, generation, outputs) {
   return outputs.map((artifactId) => latest(records.filter((record) =>
     record.payload?.artifactId === artifactId), "artifact.submitted", phase, generation));
+}
+
+/** @param {any[]} records @param {string} repo @param {string} targetCommit @param {string} artifactId */
+function passedText(records, repo, targetCommit, artifactId) {
+  const record = [...records].reverse().find((item) => item.kind === "artifact.submitted" &&
+    item.payload?.artifactId === artifactId);
+  if (!record) throw new Error(`過去の${artifactId}提出がありません`);
+  verifyArtifact(repo, { ...record.payload, targetCommit });
+  return { recordId: record.recordId, text: git(repo, ["show", `${targetCommit}:${record.payload.path}`]) };
+}
+
+/** @param {string} repo @param {string} commit @param {string} artifactId */
+function suggestedArtifact(repo, commit, artifactId) {
+  const path = /** @type {Record<string,string>} */ (artifactPaths)[artifactId];
+  if (!path) return null;
+  try {
+    const body = execFileSync("git", ["-C", repo, "show", `${commit}:${path}`],
+      { stdio: ["ignore", "pipe", "pipe"] });
+    return { path, sha256: sha(body) };
+  } catch { return null; }
 }
 
 /** @param {unknown} value @param {string} name */
@@ -104,6 +136,20 @@ function activityFor(records, projection, process) {
         reason: payload.reason, expiresAt: payload.expiresAt, state,
         statusReasons: state === "evidence_changed" ? evidenceReasons : [] }];
     }
+    if (record.kind === "task.run_inspected") return [{ ...base, kind: "run", phase: "P4",
+      runId: payload.runId, mode: payload.mode, candidateCommit: payload.candidateCommit,
+      passed: payload.checks?.filter((/** @type {any} */ check) => check.result === "passed").length ?? 0,
+      total: payload.checks?.length ?? 0 }];
+    if (record.kind === "task.candidate_accepted") return [{ ...base, kind: "candidate",
+      phase: "P4", runId: payload.runId, targetCommit: payload.evidenceCommit }];
+    if (record.kind === "gate.check_recorded" && ["G3", "G4", "acceptance"].includes(payload.layerId)) {
+      return [{ ...base, kind: "check", phase: payload.phase, layerId: payload.layerId,
+        checkId: payload.checkId, result: payload.result, targetCommit: payload.subjectCommit }];
+    }
+    if (record.kind === "deliverables.generated") return [{ ...base, kind: "delivery", phase: "P6",
+      targetCommit: payload.subjectCommit, path: payload.path }];
+    if (record.kind === "phase.completed") return [{ ...base, kind: "complete", phase: "P6",
+      targetCommit: payload.subjectCommit, label: payload.label }];
     return [];
   }).flat());
   for (const [index, item] of activity.entries()) {
@@ -127,8 +173,8 @@ function heldProject(records, projectId) {
     simulated: true };
 }
 
-/** @param {any} config @param {any[]} records @param {string} projectId */
-function currentProjection(config, records, projectId) {
+/** @param {any} config @param {any[]} records @param {string} projectId @param {boolean=} includeSuggestions */
+function currentProjection(config, records, projectId, includeSuggestions = false) {
   const projectRecords = recordsFor(records, projectId);
   const created = projectRecords[0];
   if (created?.kind !== "project.created") throw new Error("案件が見つかりません");
@@ -144,6 +190,8 @@ function currentProjection(config, records, projectId) {
     .map((record, index) => ({ artifactId: outputs[index], recordId: record?.recordId ?? null,
       path: record?.payload.path ?? null, sha256: record?.payload.sha256 ?? null,
       verified: record ? snapshot.currentRecordIds.includes(record.recordId) : false }));
+  const inspected = latest(projectRecords, "task.run_inspected", "P4", projection.generation);
+  const accepted = latest(projectRecords, "task.candidate_accepted", "P4", projection.generation);
   return { projectId, fixtureId: created.payload.fixtureId, targetRepoId: fixture.repoId,
     targetCommit, baseCommit: created.payload.targetCommit, policySha256: localPolicySha256,
     processSha256: created.payload.processSha256, phase: projection.phase,
@@ -155,8 +203,14 @@ function currentProjection(config, records, projectId) {
     priorPhases: /** @type {any[]} */ (config.process.phases).slice(0, config.process.phases.findIndex((/** @type {any} */ item) => item.id === projection.phase))
       .map((item) => ({ id: item.id, name: item.name })),
     requiredArtifacts: outputs.map((artifactId) => ({ id: artifactId,
-      name: /** @type {any[]} */ (config.process.artifacts).find((item) => item.id === artifactId)?.name ?? artifactId })),
+      name: /** @type {any[]} */ (config.process.artifacts).find((item) => item.id === artifactId)?.name ?? artifactId,
+      suggested: includeSuggestions ? suggestedArtifact(fixture.repo, targetCommit, artifactId) : null })),
+    run: projection.phase === "P4" ? { runId: inspected?.payload.runId ?? null,
+      candidateCommit: inspected?.payload.candidateCommit ?? null,
+      checks: inspected?.payload.checks ?? [], accepted: !!accepted,
+      evidenceCommit: accepted?.payload.evidenceCommit ?? null } : null,
     canTransition: projection.canTransition && writablePhases.has(projection.phase),
+    canComplete: projection.canComplete, completed: projection.completed,
     missing: projection.missing, artifacts, simulated: true,
     activity: activityFor(projectRecords, projection, config.process),
     invalidRecords: snapshot.invalidRecords.map((item) => ({ recordId: item.recordId, reason: item.reason })) };
@@ -199,7 +253,7 @@ export function createPocService(config) {
   /** @param {string} projectId */
   async function detail(projectId) {
     const state = await readLedger(config.ledgerRoot);
-    return { head: state.head, project: currentProjection(config, state.records, projectId) };
+    return { head: state.head, project: currentProjection(config, state.records, projectId, true) };
   }
 
   /** @param {Record<string,any>} command */
@@ -224,6 +278,7 @@ export function createPocService(config) {
       if (typeof projectId !== "string" || !projectId) throw new Error("案件IDが不足しています");
       const projectRecords = recordsFor(state.records, projectId);
       const current = currentProjection(config, state.records, projectId);
+      if (current.completed && command.type !== "phase.reopen") throw new Error("完了後の操作には差戻しが必要です");
       if (!writablePhases.has(current.phase) && command.type !== "phase.reopen") {
         throw new Error("このPhaseの操作・検査は未実装です");
       }
@@ -247,7 +302,7 @@ export function createPocService(config) {
           generation: current.generation, artifactId: command.artifactId,
           targetCommit: current.targetCommit, path: command.path, sha256: command.sha256 } };
       } else if (command.type === "review.request") {
-        if (!gate || current.phase === "P4") throw new Error("現在Phaseにローカル模擬レビューはありません");
+        if (!gate) throw new Error("現在Phaseにレビューゲートはありません");
         const active = activeArtifacts(projectRecords, current.phase, current.generation, phase.outputs);
         if (active.some((item) => !item || !snapshot.currentRecordIds.includes(item.recordId) ||
           item.payload.targetCommit !== current.targetCommit)) throw new Error("有効な提出物が不足しています");
@@ -286,6 +341,165 @@ export function createPocService(config) {
         }
         record = { ...common, kind: "phase.reopened", payload: { phase: command.phase,
           generation: current.generation + 1, reason: requireText(command.reason, "差戻し理由") } };
+      } else if (command.type === "task.fake_request") {
+        if (current.phase !== "P4" || projectRecords.some((item) => item.kind === "task.run_requested" &&
+          item.payload?.generation === current.generation)) throw new Error("この世代の合成runは投入済みです");
+        const task = passedText(projectRecords, fixture.repo, current.targetCommit, "task_definition");
+        if (!task.text.includes("TASK-001:") || !task.text.includes("REQ-001:")) {
+          throw new Error("合成runは固定TASK-001に限定します");
+        }
+        record = { ...common, kind: "task.run_requested", payload: { phase: "P4",
+          generation: current.generation, runId: randomUUID(), mode: "fake",
+          baseCommit: current.targetCommit, taskDefinitionRecordId: task.recordId,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "task.fake_result") {
+        const requested = projectRecords.find((item) => item.kind === "task.run_requested" &&
+          item.payload?.runId === command.runId);
+        if (current.phase !== "P4" || !requested || requested.payload.generation !== current.generation ||
+          requested.payload.baseCommit !== current.targetCommit ||
+          projectRecords.some((item) => item.kind === "task.run_inspected" && item.payload?.runId === command.runId) ||
+          command.run?.mode !== "fake" || command.run?.runId !== command.runId ||
+          command.run?.baseCommit !== current.targetCommit ||
+          !commitPattern.test(command.run?.candidateCommit ?? "") ||
+          !Array.isArray(command.checks) || command.checks.length !== 15) {
+          throw new Error("合成runの結果・対象版が不正です");
+        }
+        record = { ...common, kind: "task.run_inspected", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, requestRecordId: requested.recordId,
+          mode: "fake", baseCommit: current.targetCommit, candidateCommit: command.run.candidateCommit,
+          steps: command.run.steps, checks: command.checks, policySha256: localPolicySha256 } };
+      } else if (command.type === "task.accept_request") {
+        const inspected = projectRecords.find((item) => item.kind === "task.run_inspected" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        const checkRecords = projectRecords.filter((item) => item.kind === "gate.check_recorded" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        if (current.phase !== "P4" || !inspected ||
+          projectRecords.some((item) => item.kind === "task.accept_requested" && item.payload?.runId === command.runId) ||
+          inspected.payload?.checks?.length !== 15 ||
+          checkRecords.length !== 16 ||
+          checkRecords.some((item) => item.payload.layerId === "G3" ? item.payload.result !== "omitted" :
+            item.payload.result !== "passed") ||
+          inspected.payload.checks.some((/** @type {any} */ item) => item.result !== "passed" ||
+            item.subjectCommit !== inspected.payload.candidateCommit)) {
+          throw new Error("検査済み候補がないか、G1/G2に未通過があります");
+        }
+        record = { ...common, kind: "task.accept_requested", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId,
+          candidateCommit: inspected.payload.candidateCommit, baseCommit: current.targetCommit,
+          inspectedRecordId: inspected.recordId, policySha256: localPolicySha256 } };
+      } else if (command.type === "task.accept_result") {
+        const request = projectRecords.find((item) => item.kind === "task.accept_requested" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        if (current.phase !== "P4" || !request ||
+          projectRecords.some((item) => item.kind === "task.candidate_accepted" && item.payload?.runId === command.runId) ||
+          request.payload.baseCommit !== command.baseCommit ||
+          request.payload.candidateCommit !== command.candidateCommit ||
+          !commitPattern.test(command.evidenceCommit ?? "") ||
+          head(fixture.repo) !== command.evidenceCommit) throw new Error("候補受入れのGit結果が一致しません");
+        record = { ...common, kind: "task.candidate_accepted", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, requestRecordId: request.recordId,
+          baseCommit: command.baseCommit, candidateCommit: command.candidateCommit,
+          evidenceCommit: command.evidenceCommit, evidenceSha256: command.evidenceSha256,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "task.check_record") {
+        const inspected = projectRecords.find((item) => item.kind === "task.run_inspected" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        const expected = inspected?.payload?.checks?.find((/** @type {any} */ item) =>
+          item.layer === command.layerId && item.id === command.checkId);
+        if (current.phase !== "P4" || !expected || expected.result !== "passed" ||
+          projectRecords.some((item) => item.kind === "gate.check_recorded" &&
+            item.payload?.runId === command.runId && item.payload?.checkId === command.checkId)) {
+          throw new Error("検査結果が不正または重複しています");
+        }
+        record = { ...common, kind: "gate.check_recorded", payload: { phase: "P4",
+          generation: current.generation, gateId: "task_quality_gate", layerId: command.layerId,
+          checkId: command.checkId, runId: command.runId, result: "passed",
+          source: expected.source, subjectCommit: expected.subjectCommit,
+          evidenceSha256: expected.evidenceSha256, inspectedRecordId: inspected.recordId,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "task.g3_omit") {
+        const checks = projectRecords.filter((item) => item.kind === "gate.check_recorded" &&
+          item.payload?.runId === command.runId && ["G1", "G2"].includes(item.payload?.layerId));
+        if (current.phase !== "P4" || checks.length !== 15 ||
+          projectRecords.some((item) => item.kind === "gate.check_recorded" &&
+            item.payload?.runId === command.runId && item.payload?.layerId === "G3")) {
+          throw new Error("G3省略の前提検査が不足しています");
+        }
+        record = { ...common, kind: "gate.check_recorded", payload: { phase: "P4",
+          generation: current.generation, gateId: "task_quality_gate", layerId: "G3",
+          checkId: "scope_judge", runId: command.runId, result: "omitted",
+          source: "fixed-synthetic-policy-v1", subjectCommit: checks[0].payload.subjectCommit,
+          evidenceSha256: sha("G3 omitted; maximum L3; fixed synthetic PoC"),
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "task.g4_record") {
+        const accepted = projectRecords.find((item) => item.kind === "task.candidate_accepted" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        if (current.phase !== "P4" || !accepted || current.targetCommit !== accepted.payload.evidenceCommit ||
+          projectRecords.some((item) => item.kind === "gate.check_recorded" &&
+            item.payload?.runId === command.runId && item.payload?.layerId === "G4")) {
+          throw new Error("G4証跡の対象版が不正です");
+        }
+        verifyArtifact(fixture.repo, { targetCommit: current.targetCommit,
+          path: "docs/evidence-pack.json", sha256: accepted.payload.evidenceSha256 });
+        record = { ...common, kind: "gate.check_recorded", payload: { phase: "P4",
+          generation: current.generation, gateId: "task_quality_gate", layerId: "G4",
+          checkId: "evidence_pack", runId: command.runId, result: "passed",
+          source: "hub-evidence-pack-v1", subjectCommit: current.targetCommit,
+          evidenceSha256: accepted.payload.evidenceSha256, policySha256: localPolicySha256 } };
+      } else if (command.type === "quality.request") {
+        if (current.phase !== "P5" || projectRecords.some((item) => item.kind === "quality.check_requested" &&
+          item.payload?.generation === current.generation)) throw new Error("品質検査はこの世代で投入済みです");
+        record = { ...common, kind: "quality.check_requested", payload: { phase: "P5",
+          generation: current.generation, baseCommit: current.targetCommit,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "quality.result") {
+        const request = latest(projectRecords, "quality.check_requested", "P5", current.generation);
+        if (current.phase !== "P5" || !request ||
+          projectRecords.some((item) => item.kind === "gate.check_recorded" &&
+            item.payload?.gateId === "quality_acceptance" && item.payload?.generation === current.generation) ||
+          !commitPattern.test(command.baseCommit ?? "") || request.payload.baseCommit !== command.baseCommit ||
+          !hashPattern.test(command.evidenceSha256 ?? "")) throw new Error("品質検査結果の対象が不正です");
+        verifyArtifact(fixture.repo, { targetCommit: current.targetCommit,
+          path: "docs/quality-metrics.md", sha256: command.metricsSha256 });
+        verifyArtifact(fixture.repo, { targetCommit: current.targetCommit,
+          path: "docs/integration-result.txt", sha256: command.evidenceSha256 });
+        record = { ...common, kind: "gate.check_recorded", payload: { phase: "P5",
+          generation: current.generation, gateId: "quality_acceptance", layerId: "acceptance",
+          checkId: "integration_tests", result: "passed", source: "node-test-synthetic-integration-v1",
+          subjectCommit: current.targetCommit, baseCommit: command.baseCommit,
+          evidenceSha256: command.evidenceSha256, metricsSha256: command.metricsSha256,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "deliverables.request") {
+        if (current.phase !== "P6" || projectRecords.some((item) => item.kind === "deliverables.requested" &&
+          item.payload?.generation === current.generation)) throw new Error("納品物生成はこの世代で投入済みです");
+        record = { ...common, kind: "deliverables.requested", payload: { phase: "P6",
+          generation: current.generation, baseCommit: current.targetCommit,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "deliverables.record") {
+        const request = latest(projectRecords, "deliverables.requested", "P6", current.generation);
+        if (current.phase !== "P6" ||
+          !request || request.payload.baseCommit !== command.baseCommit ||
+          projectRecords.some((item) => item.kind === "deliverables.generated" &&
+            item.payload?.generation === current.generation)) throw new Error("納品物はこの世代で生成済みです");
+        verifyArtifact(fixture.repo, { targetCommit: current.targetCommit,
+          path: "docs/reverse-generated.md", sha256: command.sha256 });
+        record = { ...common, kind: "deliverables.generated", payload: { phase: "P6",
+          generation: current.generation, subjectCommit: current.targetCommit,
+          path: "docs/reverse-generated.md", sha256: command.sha256,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "phase.complete") {
+        if (current.phase !== "P6" || !current.canComplete) {
+          throw new Error(`ローカルPoC完了条件が不足しています: ${current.missing.join(", ")}`);
+        }
+        const active = activeArtifacts(projectRecords, "P6", current.generation, phase.outputs);
+        const review = latest(projectRecords, "phase.review_requested", "P6", current.generation);
+        const decision = [...projectRecords].reverse().find((item) => item.kind === "gate.local_decision" &&
+          item.payload?.reviewRecordId === review?.recordId);
+        record = { ...common, kind: "phase.completed", payload: { phase: "P6",
+          generation: current.generation, subjectCommit: current.targetCommit,
+          artifactRecordIds: active.map((item) => item.recordId).sort(),
+          reviewRecordId: review?.recordId, decisionRecordId: decision?.recordId,
+          policySha256: localPolicySha256, label: "local-synthetic-poc-complete" } };
       } else throw new Error("未対応の操作です");
       const proposed = [...projectRecords, record];
       const nextSnapshot = verifiedSnapshot(fixture.repo, proposed, current.targetCommit, fixture.repoId);
@@ -298,5 +512,128 @@ export function createPocService(config) {
     return { head: saved.head, project: currentProjection(config, saved.records, projectId) };
   }
 
-  return { initialize, list, detail, execute };
+  /** Save the request before any fake worker side effect. A pending request is never auto-retried. */
+  /** @param {Record<string,any>} command */
+  async function runFake(command) {
+    const requested = await execute({ ...command, type: "task.fake_request" });
+    const state = await readLedger(config.ledgerRoot);
+    const request = state.records.at(-1);
+    if (request?.kind !== "task.run_requested" || request.projectId !== command.projectId) {
+      throw new Error("合成run要求の保存結果を確認できません");
+    }
+    const fixture = config.fixtures[requested.project.fixtureId];
+    if (!fixture) throw new Error("合成fixtureが見つかりません");
+    const projectRecords = recordsFor(state.records, command.projectId);
+    const taskDefinition = passedText(projectRecords, fixture.repo, requested.project.targetCommit, "task_definition").text;
+    const requirementSpec = passedText(projectRecords, fixture.repo, requested.project.targetCommit, "requirement_spec").text;
+    const run = await runSyntheticTdd({ repo: fixture.repo, worktreeRoot: join(config.ledgerRoot, "runs"),
+      runId: request.payload.runId, baseCommit: requested.project.targetCommit });
+    const inspected = await inspectSyntheticCandidate({ repo: fixture.repo,
+      worktreeRoot: join(config.ledgerRoot, "runs"), run, taskDefinition, requirementSpec });
+    let saved = await execute({ type: "task.fake_result", ...command, expectedHead: requested.head,
+      runId: run.runId, run, checks: inspected.checks });
+    if (inspected.checks.length === 15 && inspected.checks.every((item) => item.result === "passed")) {
+      for (const check of inspected.checks) {
+        saved = await execute({ ...command, type: "task.check_record", expectedHead: saved.head,
+          runId: run.runId, layerId: check.layer, checkId: check.id });
+      }
+      saved = await execute({ ...command, type: "task.g3_omit", expectedHead: saved.head,
+        runId: run.runId });
+    }
+    return { ...saved, run: { ...run, checks: inspected.checks } };
+  }
+
+  /** @param {Record<string,any>} command */
+  async function acceptCandidate(command) {
+    const requested = await execute({ ...command, type: "task.accept_request" });
+    const state = await readLedger(config.ledgerRoot);
+    const request = state.records.at(-1);
+    if (request?.kind !== "task.accept_requested" || request.projectId !== command.projectId) {
+      throw new Error("候補受入れ要求の保存を確認できません");
+    }
+    const fixture = config.fixtures[requested.project.fixtureId];
+    const inspected = state.records.find((item) => item.recordId === request.payload.inspectedRecordId);
+    const worktree = join(config.ledgerRoot, "runs", command.runId);
+    if (!fixture || !inspected || head(fixture.repo) !== request.payload.baseCommit ||
+      head(worktree) !== request.payload.candidateCommit ||
+      git(fixture.repo, ["status", "--porcelain"]) || git(worktree, ["status", "--porcelain"])) {
+      throw new Error("受入れ対象のGit状態が変わりました");
+    }
+    const evidence = { schemaVersion: 1, mode: "fake", runId: command.runId,
+      baseCommit: request.payload.baseCommit, candidateCommit: request.payload.candidateCommit,
+      steps: inspected.payload.steps, checks: inspected.payload.checks,
+      g3: { result: "omitted", reason: "fixed synthetic PoC policy; maximum L3", level: "L3" },
+      unverified: ["independent G3 judgement", "real CLI execution", "enterprise acceptance",
+        "general-purpose SAST and dependency vulnerability scanning"],
+      policySha256: localPolicySha256 };
+    const body = JSON.stringify(evidence, null, 2) + "\n";
+    await mkdir(join(worktree, "docs"), { recursive: true });
+    await writeFile(join(worktree, "docs/evidence-pack.json"), body);
+    git(worktree, ["add", "--", "docs/evidence-pack.json"]);
+    git(worktree, ["-c", "user.name=J-SIX synthetic PoC", "-c", "user.email=poc@localhost",
+      "commit", "-qm", "Synthetic G4 evidence pack"]);
+    const evidenceCommit = head(worktree);
+    if (head(fixture.repo) !== request.payload.baseCommit || git(fixture.repo, ["status", "--porcelain"])) {
+      throw new Error("受入れ前に対象repoが変わりました");
+    }
+    git(fixture.repo, ["merge", "--ff-only", evidenceCommit]);
+    let saved = await execute({ ...command, type: "task.accept_result", expectedHead: requested.head,
+      targetCommit: evidenceCommit, baseCommit: request.payload.baseCommit,
+      candidateCommit: request.payload.candidateCommit, evidenceCommit, evidenceSha256: sha(body) });
+    saved = await execute({ ...command, type: "task.g4_record", expectedHead: saved.head,
+      targetCommit: evidenceCommit });
+    return { ...saved, candidateCommit: evidenceCommit };
+  }
+
+  /** @param {Record<string,any>} command */
+  async function runIntegration(command) {
+    const requested = await execute({ ...command, type: "quality.request" });
+    const fixture = config.fixtures[requested.project.fixtureId];
+    if (!fixture || head(fixture.repo) !== command.targetCommit ||
+      git(fixture.repo, ["status", "--porcelain"])) throw new Error("品質検査の対象Gitが変わりました");
+    const integration = `import { test } from "node:test";\nimport { strict as assert } from "node:assert";\nimport { approve } from "../src/approval.mjs";\ntest("REQ-001 / PROP-001: integrated approval route", () => {\n  const cases = [[5, 10, true], [12, 10, false], [-1, 10, false]];\n  for (const [amount, limit, expected] of cases) assert.equal(approve(amount, limit), expected);\n});\n`;
+    await writeFile(join(fixture.repo, "tests/integration.test.mjs"), integration);
+    let output;
+    try {
+      output = execFileSync(process.execPath,
+        ["--test", "tests/approval.test.mjs", "tests/holdout.test.mjs", "tests/integration.test.mjs"],
+        { cwd: fixture.repo, encoding: "utf8", timeout: 30_000, maxBuffer: 512 * 1024,
+          stdio: ["ignore", "pipe", "pipe"] });
+    } catch { throw new Error("結合・E2E検査が失敗しました。結果不明として保留します"); }
+    await writeFile(join(fixture.repo, "docs/integration-result.txt"), output);
+    const metrics = `# 合成案件の品質指標\n\n要求充足: REQ-001 / PROP-001 を unit、hold-out、結合シナリオで観測。\n欠陥: この合成実行で検出した未解決欠陥 0。\n未検証: 実CLI、複数システム連携、性能、実顧客の受入れ。\n対象commit: ${command.targetCommit}\n結合実行出力 SHA-256: ${sha(output)}\n`;
+    await writeFile(join(fixture.repo, "docs/quality-metrics.md"), metrics);
+    if (head(fixture.repo) !== command.targetCommit) throw new Error("品質結果保存前にGit HEADが変わりました");
+    git(fixture.repo, ["add", "--", "tests/integration.test.mjs", "docs/quality-metrics.md",
+      "docs/integration-result.txt"]);
+    git(fixture.repo, ["-c", "user.name=J-SIX synthetic PoC", "-c", "user.email=poc@localhost",
+      "commit", "-qm", "Synthetic integration and quality metrics"]);
+    const result = await execute({ ...command, type: "quality.result", expectedHead: requested.head,
+      targetCommit: head(fixture.repo), baseCommit: command.targetCommit,
+      evidenceSha256: sha(output), metricsSha256: sha(metrics) });
+    return { ...result, integration: { result: "passed", evidenceSha256: sha(output),
+      subjectCommit: result.project.targetCommit } };
+  }
+
+  /** @param {Record<string,any>} command */
+  async function prepareDeliverables(command) {
+    const requested = await execute({ ...command, type: "deliverables.request" });
+    const fixture = config.fixtures[requested.project.fixtureId];
+    if (!fixture || head(fixture.repo) !== command.targetCommit ||
+      git(fixture.repo, ["status", "--porcelain"])) throw new Error("納品物生成の対象Gitが変わりました");
+    const codeHash = sha(execFileSync("git", ["-C", fixture.repo, "show",
+      `${command.targetCommit}:src/approval.mjs`], { stdio: ["ignore", "pipe", "pipe"] }));
+    const evidenceHash = sha(execFileSync("git", ["-C", fixture.repo, "show",
+      `${command.targetCommit}:docs/evidence-pack.json`], { stdio: ["ignore", "pipe", "pipe"] }));
+    const body = `# 合成案件の逆生成設計書\n\n逆生成: 実装の現状を記録した文書。要求充足の独立証明ではない。\n対象commit: ${command.targetCommit}\n実装: src/approval.mjs (表示用hash ${codeHash})\n証跡: docs/evidence-pack.json (表示用hash ${evidenceHash})\nPhase 2代替項目: 設計書目次と検証戦略を確認し、合成題材の範囲で解消。\n納品物: requirement.md, design.md, adr.md, src/approval.mjs, tests/approval.test.mjs, tests/holdout.test.mjs, tests/integration.test.mjs, docs/evidence-pack.json, docs/integration-result.txt, docs/quality-metrics.md, docs/reverse-generated.md。\n未検証: 実顧客による合意、実CLI、企業システム連携。\n`;
+    await writeFile(join(fixture.repo, "docs/reverse-generated.md"), body);
+    if (head(fixture.repo) !== command.targetCommit) throw new Error("納品物保存前にGit HEADが変わりました");
+    git(fixture.repo, ["add", "--", "docs/reverse-generated.md"]);
+    git(fixture.repo, ["-c", "user.name=J-SIX synthetic PoC", "-c", "user.email=poc@localhost",
+      "commit", "-qm", "Synthetic reverse-generated delivery record"]);
+    return execute({ ...command, type: "deliverables.record", expectedHead: requested.head,
+      targetCommit: head(fixture.repo), baseCommit: command.targetCommit, sha256: sha(body) });
+  }
+
+  return { initialize, list, detail, execute, runFake, acceptCandidate, runIntegration, prepareDeliverables };
 }
