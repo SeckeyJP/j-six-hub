@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verifyArtifact, verifiedSnapshot } from "./artifact-verifier.mjs";
+import { evaluateProject } from "./process-model.mjs";
+import { localPolicySha256 } from "./policy.mjs";
 
 /** @type {string[]} */
 const roots = [];
@@ -152,4 +155,53 @@ describe("Git artifact verifier", () => {
     ];
     expect(verifiedSnapshot(root, records, current, "approval-workflow").validTransitionRecordIds).toEqual(["forward"]);
   });
+
+  it("blocks a Git-backed P1 review with heading-only requirements and rejects heading-only design", async () => {
+    const { root, sha256 } = await fixture();
+    const requirement = "REQ- AC- PROP- 受入条件 非機能 未確定";
+    const design = "検証戦略 設計書目次";
+    const flow = "# Synthetic flow\n";
+    await writeFile(join(root, "requirements.md"), requirement);
+    await writeFile(join(root, "design.md"), design);
+    await writeFile(join(root, "flow.md"), flow);
+    const env = { ...process.env, GIT_AUTHOR_NAME: "PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
+      GIT_COMMITTER_NAME: "PoC", GIT_COMMITTER_EMAIL: "poc@localhost" };
+    execFileSync("git", ["-C", root, "add", "requirements.md", "design.md", "flow.md"], { env });
+    execFileSync("git", ["-C", root, "commit", "-qm", "heading-only specifications"], { env });
+    const commit = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const processDefinition = JSON.parse(readFileSync(join(process.cwd(), ".cache/process.json"), "utf8"));
+    const at = "2026-09-27T00:00:00.000Z";
+    const event = (/** @type {string} */ recordId, /** @type {string} */ kind,
+      /** @type {Record<string, unknown>} */ payload) =>
+      ({ schemaVersion: 1, recordId, projectId: "sample", kind, recordedAt: at, payload });
+    const submission = (/** @type {string} */ recordId, /** @type {string} */ phase,
+      /** @type {string} */ artifactId, /** @type {string} */ path, /** @type {string} */ content) =>
+      event(recordId, "artifact.submitted", { phase, artifactId, generation: 0, targetCommit: commit,
+        path, sha256: createHash("sha256").update(content).digest("hex") });
+    const records = [
+      event("created", "project.created", { processSha256: processDefinition._source.sha256,
+        processCommit: processDefinition._source.tag, policySha256: localPolicySha256,
+        targetRepoId: "approval-workflow", targetCommit: commit, fixtureId: "approval-workflow" }),
+      event("constitution", "artifact.submitted", { phase: "P0", artifactId: "constitution", generation: 0,
+        targetCommit: commit, path: "constitution.md", sha256 }),
+      event("to-p1", "phase.transitioned", { from: "P0", to: "P1", generation: 0,
+        subjectCommit: commit, policySha256: localPolicySha256, artifactRecordIds: ["constitution"],
+        reviewRecordId: null, decisionRecordIds: [] }),
+      submission("req", "P1", "requirement_spec", "requirements.md", requirement),
+      submission("flow", "P1", "business_flow_prototype", "flow.md", flow),
+      event("review", "phase.review_requested", { phase: "P1", generation: 0,
+        artifactRecordIds: ["req", "flow"], policySha256: localPolicySha256 }),
+      event("decision", "gate.local_decision", { gateId: "customer_approval", phase: "P1", generation: 0,
+        reviewRecordId: "review", outcome: "approved", simulated: true, role: "customer", reason: "synthetic",
+        expiresAt: "2026-12-31T00:00:00.000Z" }),
+    ];
+    const snapshot = verifiedSnapshot(root, records, commit, "approval-workflow");
+    expect(snapshot.invalidRecords.map((item) => item.recordId)).toContain("req");
+    const state = evaluateProject(records, processDefinition, localPolicySha256, snapshot, "2026-09-27T12:00:00.000Z");
+    expect(state.canTransition).toBe(false);
+    expect(state.missing).toContain("artifact:requirement_spec:unverified");
+    const designSnapshot = verifiedSnapshot(root,
+      [submission("design", "P2", "design_spec", "design.md", design)], commit, "approval-workflow");
+    expect(designSnapshot.invalidRecords.map((item) => item.recordId)).toContain("design");
+  }, 60_000);
 });

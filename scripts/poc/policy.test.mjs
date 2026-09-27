@@ -4,14 +4,22 @@ import { localPolicy, localPolicySha256, validateArtifactStructure } from "./pol
 describe("versioned local PoC policy", () => {
   it("has a stable version and fingerprint separate from J-SIX process", () => {
     expect(localPolicy.schemaVersion).toBe(1);
-    expect(localPolicy.id).toBe("single-pc-developer-journey-v3");
+    expect(localPolicy.id).toBe("single-pc-developer-journey-v4");
     expect(localPolicySha256).toMatch(/^[0-9a-f]{64}$/);
     expect(localPolicy.artifactRules).toHaveProperty("requirement_spec");
   });
 
   it("checks core agreement structure without treating a filename as evidence", () => {
-    expect(validateArtifactStructure("requirement_spec", "# REQ-001\n受入条件 AC-001\nPROP-001\n非機能\n未確定", localPolicy)).toEqual([]);
+    const requirement = "REQ-001: synthetic requirement\nAC-001: observable acceptance\nPROP-001: property\n" +
+      "受入条件: acceptance text\n非機能: local-only operation\n未確定: なし\n";
+    expect(validateArtifactStructure("requirement_spec", requirement, localPolicy)).toEqual([]);
     expect(validateArtifactStructure("requirement_spec", "# Empty", localPolicy)).toContain("REQ-");
+    expect(validateArtifactStructure("requirement_spec", "REQ- AC- PROP- 受入条件 非機能 未確定", localPolicy))
+      .toContain("requirement:REQ:missing-or-empty");
+    expect(validateArtifactStructure("design_spec", "検証戦略 設計書目次", localPolicy))
+      .toContain("design:検証戦略:missing-or-empty");
+    expect(validateArtifactStructure("design_spec", "検証戦略: unit and hold-out checks\n設計書目次: API, operations\n", localPolicy))
+      .toEqual([]);
     expect(validateArtifactStructure("constitution", "project rules", localPolicy)).toEqual([]);
     expect(validateArtifactStructure("constitution", "", localPolicy)).toContain("content:empty");
     expect(validateArtifactStructure("constitution", "  \n\t", localPolicy)).toContain("content:empty");

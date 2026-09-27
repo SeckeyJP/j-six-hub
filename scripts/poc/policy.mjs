@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 // These are additional checks for the synthetic local PoC, not gates added to the J-SIX definition.
 export const localPolicy = Object.freeze({
   schemaVersion: 1,
-  id: "single-pc-developer-journey-v3",
+  id: "single-pc-developer-journey-v4",
   artifactRules: {
     requirement_spec: ["REQ-", "AC-", "PROP-", "受入条件", "非機能", "未確定"],
     design_spec: ["検証戦略", "設計書目次"],
@@ -47,6 +47,30 @@ function taskGaps(content) {
   return missing;
 }
 
+/** @param {string} content @param {string} field @param {boolean=} allowNone */
+function hasFilledField(content, field, allowNone = false) {
+  const pattern = field === "REQ" || field === "AC" || field === "PROP"
+    ? `^${field}-[0-9]+:[ \\t]*(\\S[^\\r\\n]*)$`
+    : `^${field}[：:][ \\t]*(\\S[^\\r\\n]*)$`;
+  const value = new RegExp(pattern, "m").exec(content)?.[1]?.trim();
+  if (!value || /^(?:TODO|TBD|未定|未記入|\.\.\.|-|なし)$/i.test(value) && !(allowNone && value === "なし")) return false;
+  return true;
+}
+
+/** @param {string} content */
+function requirementGaps(content) {
+  return ["REQ", "AC", "PROP", "受入条件", "非機能", "未確定"]
+    .filter((field) => !hasFilledField(content, field, field === "未確定"))
+    .map((field) => `requirement:${field}:missing-or-empty`);
+}
+
+/** @param {string} content */
+function designGaps(content) {
+  return ["検証戦略", "設計書目次"]
+    .filter((field) => !hasFilledField(content, field))
+    .map((field) => `design:${field}:missing-or-empty`);
+}
+
 /** @param {string} artifactId @param {string} content @param {typeof localPolicy} policy */
 export function validateArtifactStructure(artifactId, content, policy = localPolicy) {
   if (policy.schemaVersion !== 1) throw new Error("未知のPoC方針schemaです");
@@ -54,5 +78,7 @@ export function validateArtifactStructure(artifactId, content, policy = localPol
   if (typeof content !== "string" || !content.trim()) return ["content:empty", ...required];
   const missing = required.filter((token) => !content.includes(token));
   if (["task_list", "task_definition"].includes(artifactId)) missing.push(...taskGaps(content));
+  if (artifactId === "requirement_spec") missing.push(...requirementGaps(content));
+  if (artifactId === "design_spec") missing.push(...designGaps(content));
   return missing;
 }

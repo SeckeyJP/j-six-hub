@@ -26,7 +26,8 @@ describe("passed artifact validity across real Git commits", () => {
     /** @type {Record<string, string>} */
     const files = {
       "constitution.md": "# Synthetic constitution\n",
-      "requirements.md": "REQ-001 AC-001 PROP-001 受入条件 非機能 未確定\n",
+      "requirements.md": "REQ-001: synthetic requirement\nAC-001: observable acceptance\nPROP-001: property\n" +
+        "受入条件: acceptance text\n非機能: local-only operation\n未確定: なし\n",
       "flow.md": "# Synthetic workflow\n",
     };
     git(["init", "-q"]);
@@ -65,7 +66,7 @@ describe("passed artifact validity across real Git commits", () => {
       reason: "synthetic", expiresAt: "2026-12-31T00:00:00.000Z" });
     transition("to-p2", "P1", "P2", baseline, ["req", "flow"], "review-p1", ["decision-p1"]);
     Object.assign(files, {
-      "design.md": "検証戦略 設計書目次\n", "adr.md": "# Synthetic ADR\n",
+      "design.md": "検証戦略: unit and hold-out checks\n設計書目次: API, operations\n", "adr.md": "# Synthetic ADR\n",
       "prototype.md": "# Working prototype\n", "properties.md": "# Properties\n",
     });
     for (const path of ["design.md", "adr.md", "prototype.md", "properties.md"]) {
@@ -110,7 +111,8 @@ describe("passed artifact validity across real Git commits", () => {
     expect(p3.phase).toBe("P3");
     expect(p3.canTransition).toBe(false);
     expect(p3.missing).toContain("artifact:task_list:unverified");
-    files["requirements.md"] = "REQ-002 AC-002 PROP-002 受入条件 非機能 未確定\n";
+    files["requirements.md"] = "REQ-002: changed requirement\nAC-002: changed acceptance\nPROP-002: changed property\n" +
+      "受入条件: changed text\n非機能: local-only operation\n未確定: なし\n";
     await writeFile(join(root, "requirements.md"), files["requirements.md"]);
     git(["add", "requirements.md"]); git(["commit", "-qm", "changed requirement"]);
     const changed = git(["rev-parse", "HEAD"]);
