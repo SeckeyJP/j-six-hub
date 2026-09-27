@@ -84,7 +84,7 @@ export function validateProcess(process, pinnedSha256) {
   return { phases, phaseIds, gates: gateByPhase, processCommit: process._source.tag };
 }
 
-/** @param {any[]} records @param {any} model @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[],verifiedAtCommits:Record<string,string[]>,validTransitionRecordIds:string[]}} snapshot */
+/** @param {any[]} records @param {any} model @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[],verifiedAtCommits:Record<string,string[]>,validTransitionRecordIds:string[],validCompletionRecordIds?:string[]}} snapshot */
 function projectPosition(records, model, snapshot) {
   const first = records[0];
   if (first?.kind !== "project.created") throw new Error("project.createdが先頭にありません");
@@ -315,7 +315,7 @@ function gateGaps(gate, records, review, generation, now) {
 /**
  * Pure projection. The snapshot must come from a separate Git verifier; an unverified claim is never a pass.
  * @param {any[]} records @param {any} process @param {string} policySha256
- * @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[],verifiedAtCommits:Record<string,string[]>,validTransitionRecordIds:string[]}} snapshot @param {string=} now
+ * @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[],verifiedAtCommits:Record<string,string[]>,validTransitionRecordIds:string[],validCompletionRecordIds?:string[]}} snapshot @param {string=} now
  */
 export function evaluateProject(records, process, policySha256, snapshot, now = new Date().toISOString()) {
   if (!Array.isArray(records) || !records.length) throw new Error("案件recordがありません");
