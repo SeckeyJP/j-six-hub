@@ -8,7 +8,7 @@ const hubRoot = process.cwd();
 const sha = (/** @type {string | Buffer} */ data) => createHash("sha256").update(data).digest("hex");
 const commitPattern = /^[0-9a-f]{40,64}$/;
 const evidenceLimit = 16 * 1024;
-const definitionVersion = "hub-fixed-synthetic-checks-v3";
+const definitionVersion = "hub-fixed-synthetic-checks-v4";
 
 /** @param {string} repo @param {string[]} args */
 function git(repo, args) {
@@ -66,9 +66,21 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
     git(repo, ["rev-parse", "HEAD"]) !== candidate.baseCommit ||
     git(worktree, ["rev-parse", "HEAD"]) !== candidate.candidateCommit) throw new Error("候補HEAD・基準commitが一致しません");
   assertStepHistory(worktree, steps);
-  if (steps[3].commit !== candidate.candidateCommit ||
-    git(worktree, ["rev-parse", `${steps[0].commit}^`]) !== candidate.baseCommit) {
-    throw new Error("候補とTDD履歴の対象commitが一致しません");
+  const originalBase = git(worktree, ["rev-parse", `${steps[0].commit}^`]);
+  if (candidate.mode === "fake") {
+    if (steps[3].commit !== candidate.candidateCommit || originalBase !== candidate.baseCommit) {
+      throw new Error("候補とTDD履歴の対象commitが一致しません");
+    }
+  } else if (candidate.mode === "fake-revalidation") {
+    if (candidate.candidateCommit !== candidate.baseCommit ||
+      git(worktree, ["merge-base", "--is-ancestor", steps[3].commit, candidate.baseCommit]) !== "" ||
+      ["src/approval.mjs", "tests/approval.test.mjs", "tests/holdout.test.mjs"].some((path) =>
+        git(worktree, ["rev-parse", `${steps[3].commit}:${path}`]) !==
+          git(worktree, ["rev-parse", `${candidate.baseCommit}:${path}`]))) {
+      throw new Error("再検証対象と保存済みTDD履歴が一致しません");
+    }
+  } else {
+    throw new Error("未知の合成run modeです");
   }
   const code = await readFile(join(worktree, "src/approval.mjs"), "utf8");
   const unit = await readFile(join(worktree, "tests/approval.test.mjs"), "utf8");
@@ -119,13 +131,13 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
     `external-dependency-scan=${depsOk}; contentSha256=${sha(code + unit + holdout)}`, "hub dependency rule");
   const allow = field(taskDefinition, "allow").split(",").map((item) => item.trim());
   const deny = field(taskDefinition, "deny").split(",").map((item) => item.trim());
-  const changed = git(worktree, ["diff", "--name-only", candidate.baseCommit, steps[3].commit]).split("\n")
+  const changed = git(worktree, ["diff", "--name-only", originalBase, steps[3].commit]).split("\n")
     .filter(Boolean).filter((path) => !localPolicy.hubOwnedTaskPaths.includes(path));
   const scopeOk = changed.length > 0 && changed.every((path) =>
     allow.some((pattern) => matches(path, pattern)) && !deny.some((pattern) => matches(path, pattern)));
   record("G1", "scope", scopeOk ? "passed" : "failed", changed.join("\n"),
     "git diff --name-only <baseline> <refactor>; exclude policy hubOwnedTaskPaths", "git");
-  const baselineCode = git(worktree, ["show", `${candidate.baseCommit}:src/approval.mjs`]);
+  const baselineCode = git(worktree, ["show", `${originalBase}:src/approval.mjs`]);
   const interfaceOk = /export function approve\(amount, limit\)/.test(code) &&
     /export function approve\(amount, limit\)/.test(baselineCode);
   record("G1", "interface_contract", interfaceOk ? "passed" : "failed",

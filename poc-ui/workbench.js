@@ -201,7 +201,8 @@ function renderDetail() {
     append(root, element("h3", "合成タスクの TDD 実行"),
       element("p", "固定された模擬作業者が候補を作り、Hub が G1/G2 を実行します。AI CLI はこの段階では起動しません。"));
     if (project.run?.runId) {
-      append(root, element("p", `run ${project.run.runId} · 候補 ${project.run.candidateCommit} · ${project.run.accepted ? "受入れ済み" : "受入れ待ち"}`, "code"));
+      const mode = project.run.mode === "fake-revalidation" ? "差し戻し再検証" : "初回 TDD";
+      append(root, element("p", `run ${project.run.runId} · ${mode} · 候補 ${project.run.candidateCommit} · ${project.run.accepted ? "受入れ済み" : "受入れ待ち"}`, "code"));
       const checks = element("ul");
       for (const check of project.run.checks) append(checks, element("li", `${check.layer}/${check.id}: ${check.result}`));
       append(root, checks);

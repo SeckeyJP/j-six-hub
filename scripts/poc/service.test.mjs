@@ -11,7 +11,7 @@ import { localPolicySha256 } from "./policy.mjs";
 const processDefinition = JSON.parse(readFileSync(join(process.cwd(), ".cache/process.json"), "utf8"));
 /** @type {string[]} */
 const roots = [];
-afterEach(async () => { vi.useRealTimers(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.useRealTimers(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); }, 60_000);
 
 /** @param {string} repo @param {string[]} args */
 function git(repo, args) {
@@ -41,6 +41,7 @@ async function fixture() {
     "tasks.md": "TASK-001: synthetic change\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
     "task.md": "TASK-001: synthetic change\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
     "src/approval.mjs": "export function approve(amount, limit) { return false; }\n",
+    "src/approval-route.mjs": "import { approve } from \"./approval.mjs\";\nexport function handleApproval(request) {\n  const { amount, limit } = request ?? {};\n  if (!Number.isFinite(amount) || !Number.isFinite(limit)) {\n    return { status: 400, body: { approved: false, error: \"invalid request\" } };\n  }\n  return { status: 200, body: { approved: approve(amount, limit) } };\n}\n",
   });
   content["tasks.md"] = "TASK-001: synthetic change\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n";
   content["task.md"] = content["tasks.md"] ?? "";
@@ -108,12 +109,26 @@ describe("localhost service commands", () => {
     expect(result.project.phase).toBe("P4");
     expect(result.project.canTransition).toBe(false);
     expect(result.project.missing).toContain("task:candidate-not-accepted");
+    await writeFile(join(repo, "constitution.md"), "# Changed constitution\n");
+    git(repo, ["add", "constitution.md"]); git(repo, ["commit", "-qm", "change passed constitution"]);
+    let blocked = await service.detail(projectId);
+    expect(blocked.project.missing.some((reason) => reason.startsWith("passed-artifact:"))).toBe(true);
+    await expect(service.runFake({ ...common(blocked.head, projectId, 0, blocked.project.targetCommit) }))
+      .rejects.toThrow(/再確認/);
+    expect((await service.detail(projectId)).head).toBe(blocked.head);
+    await writeFile(join(repo, "constitution.md"), content["constitution.md"] ?? "");
+    git(repo, ["add", "constitution.md"]); git(repo, ["commit", "-qm", "restore passed constitution"]);
+    blocked = await service.detail(projectId);
+    expect(blocked.project.missing.some((reason) => reason.startsWith("passed-artifact:"))).toBe(false);
+    result = /** @type {{head:string,project:any}} */ (blocked);
     const restored = createPocService({ ledgerRoot, process: processDefinition, fixtures: { synthetic: { repo, repoId: "synthetic" } } });
     await restored.initialize();
     expect((await restored.detail(projectId)).project.phase).toBe("P4");
-    await expect(restored.execute({ type: "phase.transition", ...common(result.head, projectId, 0, commit) }))
+    await expect(restored.execute({ type: "phase.transition",
+      ...common(result.head, projectId, 0, blocked.project.targetCommit) }))
       .rejects.toThrow(/遷移条件/);
-    result = await restored.execute({ type: "phase.reopen", ...common(result.head, projectId, 0, commit),
+    result = await restored.execute({ type: "phase.reopen",
+      ...common(result.head, projectId, 0, blocked.project.targetCommit),
       phase: "P3", reason: "Synthetic task revision" });
     expect(result.project.phase).toBe("P3");
     expect(result.project.generation).toBe(1);
@@ -399,9 +414,32 @@ describe("localhost service commands", () => {
     expect(changed.project.completed).toBe(false);
     expect(changed.project.missing).toContain("completion:target-changed-reopen-required");
     const reopened = await restored.execute({ type: "phase.reopen",
-      ...common(changed.head, id, 0, changed.project.targetCommit), phase: "P5",
+      ...common(changed.head, id, 0, changed.project.targetCommit), phase: "P4",
       reason: "Revalidate after completion change" });
-    expect(reopened.project.phase).toBe("P5");
+    expect(reopened.project.phase).toBe("P4");
     expect(reopened.project.generation).toBe(1);
-  }, 300_000);
+    const rerun = await restored.runFake(common(reopened.head, id, 1, reopened.project.targetCommit));
+    expect(rerun.run.mode).toBe("fake-revalidation");
+    expect(rerun.project.run?.mode).toBe("fake-revalidation");
+    expect(rerun.run.candidateCommit).toBe(reopened.project.targetCommit);
+    const reaccepted = await restored.acceptCandidate({ ...common(rerun.head, id, 1, reopened.project.targetCommit),
+      runId: rerun.run.runId });
+    expect(reaccepted.project.phase).toBe("P4");
+    expect(reaccepted.project.run?.accepted).toBe(true);
+    current = reaccepted;
+    for (const [artifactId, path] of /** @type {[string,string][]} */ ([
+      ["holdout_tests", "tests/holdout.test.mjs"], ["tests", "tests/approval.test.mjs"],
+      ["code", "src/approval.mjs"], ["evidence_pack", "docs/evidence-pack.json"],
+    ])) {
+      current = await restored.execute({ type: "artifact.submit",
+        ...common(current.head, id, 1, current.project.targetCommit), artifactId, path,
+        sha256: hash(readFileSync(join(repo, path), "utf8")) });
+    }
+    current = await restored.execute({ type: "review.request",
+      ...common(current.head, id, 1, current.project.targetCommit) });
+    expect(current.project.canTransition).toBe(true);
+    current = await restored.execute({ type: "phase.transition",
+      ...common(current.head, id, 1, current.project.targetCommit) });
+    expect(current.project.phase).toBe("P5");
+  }, 720_000);
 });

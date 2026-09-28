@@ -56,7 +56,7 @@ describe("synthetic TDD worktree", () => {
     ]);
     expect(inspection.checks.filter((check) => check.result !== "passed").map((check) => check.id)).toEqual([]);
     expect(inspection.checks.every((check) => check.evidence.output.length <= 16 * 1024 &&
-      check.evidence.definitionVersion === "hub-fixed-synthetic-checks-v3")).toBe(true);
+      check.evidence.definitionVersion === "hub-fixed-synthetic-checks-v4")).toBe(true);
     expect(inspection.candidateCommit).toBe(refactor);
     const forbiddenTest = await inspectSyntheticCandidate({ repo, worktreeRoot: join(root, "runs"), run: result,
       taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: values within limit\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: tests/**\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
@@ -126,5 +126,32 @@ describe("synthetic TDD worktree", () => {
     await expect(runSyntheticTdd({ repo, worktreeRoot: join(root, "runs"),
       runId: "already-green", baseCommit: baseline })).rejects.toThrow(/Red失敗/);
     expect(git(repo, ["rev-parse", "HEAD"])).toBe(baseline);
+  }, 30_000);
+
+  it("revalidates preserved TDD evidence after an accepted candidate is reopened", async () => {
+    const root = await mkdtemp(join(tmpdir(), "jsix-revalidate-")); roots.push(root);
+    const repo = join(root, "fixture"); await mkdir(repo); await mkdir(join(repo, "src"));
+    git(repo, ["init", "-q"]);
+    await writeFile(join(repo, "src/approval.mjs"), "export function approve(amount, limit) { return false; }\n");
+    git(repo, ["add", "."]); git(repo, ["commit", "-qm", "stub baseline"]);
+    const baseline = git(repo, ["rev-parse", "HEAD"]);
+    const worktreeRoot = join(root, "runs");
+    const original = await runSyntheticTdd({ repo, worktreeRoot, runId: "original", baseCommit: baseline });
+    const originalWorktree = join(worktreeRoot, "original");
+    await mkdir(join(originalWorktree, "docs"));
+    await writeFile(join(originalWorktree, "docs/check-evidence.json"),
+      JSON.stringify({ schemaVersion: 1, runId: original.runId, steps: original.steps }) + "\n");
+    git(originalWorktree, ["add", "docs/check-evidence.json"]);
+    git(originalWorktree, ["commit", "-qm", "accept synthetic evidence"]);
+    git(repo, ["merge", "--ff-only", git(originalWorktree, ["rev-parse", "HEAD"])]);
+    const accepted = git(repo, ["rev-parse", "HEAD"]);
+    const rerun = await runSyntheticTdd({ repo, worktreeRoot, runId: "after-reopen", baseCommit: accepted });
+    expect(rerun.mode).toBe("fake-revalidation");
+    expect(rerun.candidateCommit).toBe(accepted);
+    expect(rerun.steps).toEqual(original.steps);
+    const inspection = await inspectSyntheticCandidate({ repo, worktreeRoot, run: rerun,
+      taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
+      requirementSpec: "REQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n" });
+    expect(inspection.checks.every((check) => check.result === "passed")).toBe(true);
   }, 30_000);
 });

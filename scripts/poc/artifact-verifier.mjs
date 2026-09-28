@@ -52,7 +52,7 @@ function verifyEvidenceReference(repo, targetCommit, content) {
 
 /** @param {string} repo @param {string} targetCommit @param {any[]} manifest */
 function verifyEvidenceManifest(repo, targetCommit, manifest) {
-  if (!Array.isArray(manifest) || manifest.length !== 3 ||
+  if (!Array.isArray(manifest) || manifest.length !== 4 ||
     new Set(manifest.map((item) => item?.evidenceId)).size !== manifest.length) {
     throw new Error("品質検査の証跡manifestが不正です");
   }

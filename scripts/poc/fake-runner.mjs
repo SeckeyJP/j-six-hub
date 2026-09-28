@@ -69,6 +69,18 @@ export async function runSyntheticTdd({ repo, worktreeRoot, runId, baseCommit })
   await mkdir(worktreeRoot, { recursive: true });
   const worktree = join(worktreeRoot, runId);
   git(repo, ["worktree", "add", "--detach", worktree, baseCommit]);
+  try {
+    const prior = JSON.parse(git(worktree, ["show", `${baseCommit}:docs/check-evidence.json`]));
+    const steps = prior?.steps;
+    if (!Array.isArray(steps) || steps.length !== 4) throw new Error("過去のTDD履歴がありません");
+    const rechecked = testRun(worktree, ["tests/approval.test.mjs", "tests/holdout.test.mjs"]);
+    if (rechecked.status !== "passed") throw new Error("差戻し後の再検証テストが失敗しました");
+    return { mode: "fake-revalidation", runId, baseCommit, steps, candidateCommit: baseCommit,
+      revalidation: { status: "passed", preservedTddRunId: prior.runId } };
+  } catch (error) {
+    if (error instanceof SyntaxError || error instanceof Error && /過去のTDD履歴|再検証/.test(error.message)) throw error;
+    // The initial synthetic fixture has no prior evidence and follows the full TDD path below.
+  }
   await mkdir(join(worktree, "tests"));
   /** @type {{id:string,commit:string,test?:{status:string,failureCode:string|null}}[]} */
   const steps = [];

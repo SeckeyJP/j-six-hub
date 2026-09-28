@@ -26,6 +26,7 @@ const documents = {
   "tasks.md": "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable approval\nPROP-001: finite values\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
   "task.md": "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable approval\nPROP-001: finite values\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
   "src/approval.mjs": "export function approve(amount, limit) { return false; }\n",
+  "src/approval-route.mjs": "import { approve } from \"./approval.mjs\";\nexport function handleApproval(request) {\n  const { amount, limit } = request ?? {};\n  if (!Number.isFinite(amount) || !Number.isFinite(limit)) {\n    return { status: 400, body: { approved: false, error: \"invalid request\" } };\n  }\n  return { status: 200, body: { approved: approve(amount, limit) } };\n}\n",
 };
 for (const [path, body] of Object.entries(documents)) await writeFile(join(repo, path), body);
 git(["add", "."]);

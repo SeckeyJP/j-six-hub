@@ -8,6 +8,7 @@ import { evaluateProject, validateProcess } from "./process-model.mjs";
 import { localPolicy, localPolicySha256, requiredChecks } from "./policy.mjs";
 import { runSyntheticTdd } from "./fake-runner.mjs";
 import { inspectSyntheticCandidate } from "./synthetic-checks.mjs";
+import { runSyntheticIntegration, syntheticIntegrationTest } from "./integration-check.mjs";
 
 const commitPattern = /^[0-9a-f]{40,64}$/;
 const hashPattern = /^[0-9a-f]{64}$/;
@@ -102,6 +103,7 @@ function acceptedArtifactManifest(repo, commit) {
 /** @param {string} repo @param {string} commit */
 function qualityEvidenceManifest(repo, commit) {
   return [
+    ["integration_entry", "src/approval-route.mjs"],
     ["integration_test", "tests/integration.test.mjs"],
     ["integration_output", "docs/integration-result.txt"],
     ["quality_metrics", "docs/quality-metrics.md"],
@@ -114,6 +116,12 @@ function qualityEvidenceManifest(repo, commit) {
 function requireText(value, name) {
   if (typeof value !== "string" || !value.trim() || value.length > 1000) throw new Error(`${name}が不正です`);
   return value.trim();
+}
+
+/** @param {any} projection */
+function taskExecutionBlocks(projection) {
+  return projection.missing.filter((/** @type {string} */ reason) =>
+    ["policy:", "target:", "passed-artifact:", "passed-check:"].some((prefix) => reason.startsWith(prefix)));
 }
 
 /** Show only reviewed fields from the ledger, never arbitrary payloads.
@@ -244,6 +252,7 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
       name: /** @type {any[]} */ (config.process.artifacts).find((item) => item.id === artifactId)?.name ?? artifactId,
       suggested: includeSuggestions ? suggestedArtifact(fixture.repo, targetCommit, artifactId) : null })),
     run: projection.phase === "P4" ? { runId: inspected?.payload.runId ?? null,
+      mode: inspected?.payload.mode ?? null,
       candidateCommit: inspected?.payload.candidateCommit ?? null,
       checks: (inspected?.payload.checks ?? []).map((/** @type {any} */ check) => ({
         layer: check.layer, id: check.id, result: check.result, subjectCommit: check.subjectCommit,
@@ -386,7 +395,9 @@ export function createPocService(config) {
           generation: current.generation + 1, reason: requireText(command.reason, "差戻し理由") } };
       } else if (command.type === "task.fake_request") {
         if (current.phase !== "P4" || projectRecords.some((item) => item.kind === "task.run_requested" &&
-          item.payload?.generation === current.generation)) throw new Error("この世代の合成runは投入済みです");
+          item.payload?.generation === current.generation) || taskExecutionBlocks(current).length) {
+          throw new Error("先行Phase・方針・対象版の再確認が済むまで合成runを開始できません");
+        }
         const task = passedText(projectRecords, fixture.repo, current.targetCommit, "task_definition");
         const checks = requiredChecks(task.text);
         if (!task.text.includes("TASK-001:") || !task.text.includes("REQ-001:") ||
@@ -404,7 +415,7 @@ export function createPocService(config) {
         if (current.phase !== "P4" || !requested || requested.payload.generation !== current.generation ||
           requested.payload.baseCommit !== current.targetCommit ||
           projectRecords.some((item) => item.kind === "task.run_inspected" && item.payload?.runId === command.runId) ||
-          command.run?.mode !== "fake" || command.run?.runId !== command.runId ||
+          !["fake", "fake-revalidation"].includes(command.run?.mode) || command.run?.runId !== command.runId ||
           command.run?.baseCommit !== current.targetCommit ||
           !commitPattern.test(command.run?.candidateCommit ?? "") ||
           !Array.isArray(command.checks) || command.checks.length !== localPolicy.requiredCheckIds.length ||
@@ -417,7 +428,7 @@ export function createPocService(config) {
         }
         record = { ...common, kind: "task.run_inspected", payload: { phase: "P4",
           generation: current.generation, runId: command.runId, requestRecordId: requested.recordId,
-          mode: "fake", baseCommit: current.targetCommit, candidateCommit: command.run.candidateCommit,
+          mode: command.run.mode, baseCommit: current.targetCommit, candidateCommit: command.run.candidateCommit,
           steps: command.run.steps, checks: command.checks,
           taskDefinitionSha256: requested.payload.taskDefinitionSha256,
           requiredChecks: requested.payload.requiredChecks, policySha256: localPolicySha256 } };
@@ -426,9 +437,10 @@ export function createPocService(config) {
           item.payload?.runId === command.runId && item.payload?.generation === current.generation);
         const checkRecords = projectRecords.filter((item) => item.kind === "gate.check_recorded" &&
           item.payload?.runId === command.runId && item.payload?.generation === current.generation);
-        if (current.phase !== "P4" || !inspected ||
+        if (current.phase !== "P4" || !inspected || taskExecutionBlocks(current).length ||
           projectRecords.some((item) => item.kind === "task.accept_requested" && item.payload?.runId === command.runId) ||
           JSON.stringify(inspected.payload?.requiredChecks) !== JSON.stringify(localPolicy.requiredCheckIds) ||
+          inspected.payload?.baseCommit !== current.targetCommit ||
           inspected.payload?.checks?.length !== localPolicy.requiredCheckIds.length ||
           checkRecords.length !== localPolicy.requiredCheckIds.length + 1 ||
           checkRecords.some((item) => item.payload.layerId === "G3" ? item.payload.result !== "omitted" :
@@ -635,13 +647,13 @@ export function createPocService(config) {
       git(fixture.repo, ["status", "--porcelain"]) || git(worktree, ["status", "--porcelain"])) {
       throw new Error("受入れ対象のGit状態が変わりました");
     }
-    const checkEvidence = { schemaVersion: 1, mode: "fake", runId: command.runId,
+    const checkEvidence = { schemaVersion: 1, mode: inspected.payload.mode, runId: command.runId,
       baseCommit: request.payload.baseCommit, candidateCommit: request.payload.candidateCommit,
       steps: inspected.payload.steps, checks: inspected.payload.checks,
-      runtime: { node: process.version }, checkDefinition: "hub-fixed-synthetic-checks-v3",
+      runtime: { node: process.version }, checkDefinition: "hub-fixed-synthetic-checks-v4",
       policySha256: localPolicySha256 };
     const evidenceBody = JSON.stringify(checkEvidence, null, 2) + "\n";
-    const evidence = { schemaVersion: 1, mode: "fake", runId: command.runId,
+    const evidence = { schemaVersion: 1, mode: inspected.payload.mode, runId: command.runId,
       baseCommit: request.payload.baseCommit, candidateCommit: request.payload.candidateCommit,
       steps: inspected.payload.steps,
       checks: inspected.payload.checks.map((/** @type {any} */ check) => ({ layer: check.layer,
@@ -680,17 +692,10 @@ export function createPocService(config) {
     const fixture = config.fixtures[requested.project.fixtureId];
     if (!fixture || head(fixture.repo) !== command.targetCommit ||
       git(fixture.repo, ["status", "--porcelain"])) throw new Error("品質検査の対象Gitが変わりました");
-    const integration = `import { test } from "node:test";\nimport { strict as assert } from "node:assert";\nimport { approve } from "../src/approval.mjs";\ntest("REQ-001 / PROP-001: integrated approval route", () => {\n  const cases = [[5, 10, true], [12, 10, false], [-1, 10, false]];\n  for (const [amount, limit, expected] of cases) assert.equal(approve(amount, limit), expected);\n});\n`;
-    await writeFile(join(fixture.repo, "tests/integration.test.mjs"), integration);
-    let output;
-    try {
-      output = execFileSync(process.execPath,
-        ["--test", "tests/approval.test.mjs", "tests/holdout.test.mjs", "tests/integration.test.mjs"],
-        { cwd: fixture.repo, encoding: "utf8", timeout: 30_000, maxBuffer: 512 * 1024,
-          stdio: ["ignore", "pipe", "pipe"] });
-    } catch { throw new Error("結合・E2E検査が失敗しました。結果不明として保留します"); }
+    await writeFile(join(fixture.repo, "tests/integration.test.mjs"), syntheticIntegrationTest);
+    const output = runSyntheticIntegration(fixture.repo);
     await writeFile(join(fixture.repo, "docs/integration-result.txt"), output);
-    const metrics = `# 合成案件の品質指標\n\n要求充足: REQ-001 / PROP-001 を unit、hold-out、結合シナリオで観測。\n欠陥: この合成実行で検出した未解決欠陥 0。\n未検証: 実CLI、複数システム連携、性能、実顧客の受入れ。\n対象commit: ${command.targetCommit}\n結合実行出力 SHA-256: ${sha(output)}\n`;
+    const metrics = `# 合成案件の品質指標\n\n要求充足: REQ-001 / PROP-001 を unit、hold-outに加え、handleApproval要求入口からapprove方針への結線を結合シナリオで観測。\n欠陥: この合成実行で検出した未解決欠陥 0。\n未検証: 実CLI、複数システム連携、性能、実顧客の受入れ。\n対象commit: ${command.targetCommit}\n結合実行出力 SHA-256: ${sha(output)}\n`;
     await writeFile(join(fixture.repo, "docs/quality-metrics.md"), metrics);
     if (head(fixture.repo) !== command.targetCommit) throw new Error("品質結果保存前にGit HEADが変わりました");
     git(fixture.repo, ["add", "--", "tests/integration.test.mjs", "docs/quality-metrics.md",
@@ -715,7 +720,7 @@ export function createPocService(config) {
       `${command.targetCommit}:src/approval.mjs`], { stdio: ["ignore", "pipe", "pipe"] }));
     const evidenceHash = sha(execFileSync("git", ["-C", fixture.repo, "show",
       `${command.targetCommit}:docs/evidence-pack.json`], { stdio: ["ignore", "pipe", "pipe"] }));
-    const body = `# 合成案件の逆生成設計書\n\n逆生成: 実装の現状を記録した文書。要求充足の独立証明ではない。\n対象commit: ${command.targetCommit}\n実装: src/approval.mjs (表示用hash ${codeHash})\n証跡: docs/evidence-pack.json (表示用hash ${evidenceHash})\nPhase 2代替項目: 設計書目次と検証戦略を確認し、合成題材の範囲で解消。\n納品物: requirement.md, design.md, adr.md, src/approval.mjs, tests/approval.test.mjs, tests/holdout.test.mjs, tests/integration.test.mjs, docs/check-evidence.json, docs/evidence-pack.json, docs/integration-result.txt, docs/quality-metrics.md, docs/reverse-generated.md。\n未検証: 実顧客による合意、実CLI、企業システム連携。\n`;
+    const body = `# 合成案件の逆生成設計書\n\n逆生成: 実装の現状を記録した文書。要求充足の独立証明ではない。\n対象commit: ${command.targetCommit}\n実装: src/approval.mjs (表示用hash ${codeHash})\n証跡: docs/evidence-pack.json (表示用hash ${evidenceHash})\nPhase 2代替項目: 設計書目次と検証戦略を確認し、合成題材の範囲で解消。\n納品物: requirement.md, design.md, adr.md, src/approval.mjs, src/approval-route.mjs, tests/approval.test.mjs, tests/holdout.test.mjs, tests/integration.test.mjs, docs/check-evidence.json, docs/evidence-pack.json, docs/integration-result.txt, docs/quality-metrics.md, docs/reverse-generated.md。\n未検証: 実顧客による合意、実CLI、企業システム連携。\n`;
     await writeFile(join(fixture.repo, "docs/reverse-generated.md"), body);
     if (head(fixture.repo) !== command.targetCommit) throw new Error("納品物保存前にGit HEADが変わりました");
     git(fixture.repo, ["add", "--", "docs/reverse-generated.md"]);
