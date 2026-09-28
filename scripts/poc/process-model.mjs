@@ -4,7 +4,8 @@ const supportedKinds = new Set([
   "project.created", "artifact.submitted", "phase.review_requested", "gate.check_recorded",
   "gate.local_decision", "phase.transitioned", "phase.reopened",
   "task.run_requested", "task.run_inspected", "task.accept_requested", "task.candidate_accepted",
-  "cli.subscription_confirmed", "cli.run_requested", "cli.cancel_requested", "cli.run_finished",
+  "cli.subscription_confirmed", "cli.run_requested", "cli.run_claimed", "cli.run_started",
+  "cli.cancel_requested", "cli.run_finished",
   "quality.check_requested", "deliverables.requested", "deliverables.generated", "phase.completed",
 ]);
 

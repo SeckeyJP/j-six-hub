@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { createCliAdapters } from "./cli-adapter.mjs";
+import { createCliAdapters, spawnBounded } from "./cli-adapter.mjs";
 
 /** @type {string[]} */ const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -21,7 +21,9 @@ async function fixture(overrides = {}) {
     calls.push(input);
     const auth = input.args[0] === "login" ? "Logged in using ChatGPT" :
       JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" });
-    const workload = '{"type":"thread.started"}\n{"type":"item.completed","command":"git config --list","status":"denied"}\n';
+    const workload = input.executable.endsWith("codex") ?
+      '{"type":"thread.started","thread_id":"t-1"}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n' :
+      '{"type":"system","session_id":"s-1"}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n{"type":"result","subtype":"success","is_error":false,"session_id":"s-1","result":"ok"}\n';
     const output = input.args[0] === "--version" ? `${providerVersion(input.executable)}\n` :
       input.args[0] === "exec" || input.args[0] === "-p" ? workload : auth;
     return { promise: Promise.resolve({ code: 0, signal: null, stdout: output,
@@ -49,6 +51,7 @@ describe("subscription CLI adapters", () => {
     expect(calls[2].args.join(" ")).not.toMatch(/dangerously|ignore-rules|bare|safe-mode|--model/);
     expect(calls[2].input).toBe("fixed prompt");
     expect(calls[2].shell).not.toBe(true);
+    expect(calls[2].env.CUSTOM_ACCESS_TOKEN).toBeUndefined();
     expect(result.process?.outputSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -94,11 +97,67 @@ describe("subscription CLI adapters", () => {
     const adapters = createCliAdapters({ executables: { codex: join(base.root, "codex"), claude: join(base.root, "claude") },
       controls: { files: [{ path: base.hook, sha256: sha("fixed hook\n") }], codexTrusted: true }, env: {}, home: base.root,
       now: () => new Date("2026-09-28T03:00:00Z"), runProcess(/** @type {any} */ input) { calls.push(input); const auth = input.args[0] === "login";
-        const output = input.args[0] === "--version" ? "codex-cli 0.test" : auth ? "Logged in using ChatGPT" : '{"type":"done"}\n';
+        const output = input.args[0] === "--version" ? "codex-cli 0.test" : auth ? "Logged in using ChatGPT" :
+          '{"type":"thread.started"}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n';
         return { promise: Promise.resolve({ code: 0, signal: null, stdout: output,
           stderr: "", overflow: false, timedOut: false, cancelled: false }), cancel() {} }; } });
     const result = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
       prompt: "fixed", confirmation: base.confirmation("codex") });
     expect(result.state).toBe("hook_unobserved"); expect(calls).toHaveLength(3);
+  });
+
+  it.each([
+    ["agent claim", '{"type":"thread.started"}\n{"type":"item.completed","item":{"type":"agent_message","text":"git config --list denied by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n', "hook_unobserved"],
+    ["broken JSON", '{"type":"thread.started"}\nnot-json\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n', "invalid_events"],
+    ["unknown event", '{"type":"thread.started"}\n{"type":"invented"}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n', "invalid_events"],
+    ["missing terminal", '{"type":"thread.started"}\n', "invalid_events"],
+  ])("rejects %s instead of trusting output text", async (_label, workload, expected) => {
+    const base = await fixture();
+    /** @type {any[]} */ const calls = [];
+    const adapters = createCliAdapters({ executables: { codex: join(base.root, "codex"), claude: join(base.root, "claude") },
+      controls: { files: [{ path: base.hook, sha256: sha("fixed hook\n") }], codexTrusted: true },
+      env: {}, home: base.root, now: () => new Date("2026-09-28T03:00:00Z"), runProcess(input) {
+        calls.push(input); const output = input.args[0] === "--version" ? "codex-cli 0.test" :
+          input.args[0] === "login" ? "Logged in using ChatGPT" : workload;
+        return { promise: Promise.resolve({ code: 0, signal: null, stdout: output, stderr: "",
+          overflow: false, timedOut: false, cancelled: false }), cancel() {} };
+      } });
+    const result = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
+      prompt: "fixed", confirmation: base.confirmation("codex") });
+    expect(result.state).toBe(expected); expect(calls).toHaveLength(3);
+  });
+
+  it("passes only allowlisted environment names to helpers and workloads", async () => {
+    const { root, calls, adapters, confirmation } = await fixture({ env: {
+      PATH: "/bin", LANG: "C", CUSTOM_ACCESS_TOKEN: "never-forward", FEATURE_FLAG: "off",
+    } });
+    const result = await adapters.run({ provider: "codex", kind: "edit", worktree: root,
+      prompt: "fixed", confirmation: confirmation("codex") });
+    expect(result.state).toBe("succeeded");
+    expect(calls.every((call) => call.env.PATH === "/bin" && call.env.LANG === "C" &&
+      call.env.HOME === root && call.env.CUSTOM_ACCESS_TOKEN === undefined && call.env.FEATURE_FLAG === undefined)).toBe(true);
+  });
+
+  it("escalates a timeout to SIGKILL and settles within a finite grace", async () => {
+    const started = Date.now();
+    const task = spawnBounded({ executable: process.execPath,
+      args: ["-e", "process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)"], cwd: process.cwd(),
+      env: { PATH: process.env.PATH }, input: "", timeoutMs: 50 });
+    const result = await task.promise;
+    expect(result.timedOut).toBe(true); expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("bounds explicit cancellation and output overflow", async () => {
+    const cancelledTask = spawnBounded({ executable: process.execPath,
+      args: ["-e", "process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)"], cwd: process.cwd(),
+      env: { PATH: process.env.PATH }, input: "", timeoutMs: 10_000 });
+    setTimeout(() => cancelledTask.cancel(), 50);
+    const cancelled = await cancelledTask.promise;
+    expect(cancelled.cancelled).toBe(true);
+    const overflowTask = spawnBounded({ executable: process.execPath,
+      args: ["-e", "process.stdout.write('x'.repeat(300000)); setInterval(()=>{},1000)"], cwd: process.cwd(),
+      env: { PATH: process.env.PATH }, input: "", timeoutMs: 10_000 });
+    const overflow = await overflowTask.promise;
+    expect(overflow.overflow).toBe(true); expect(overflow.stdout.length).toBeLessThanOrEqual(256 * 1024);
   });
 });

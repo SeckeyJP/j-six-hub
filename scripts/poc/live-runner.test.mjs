@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { prepareLiveTdd, finalizeLiveTdd } from "./live-runner.mjs";
 import { syntheticGreenCode } from "./fake-runner.mjs";
 
+const taskDefinition = "allow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\n";
+
 /** @type {string[]} */ const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 /** @param {string} repo @param {string[]} args */
@@ -15,7 +17,7 @@ function git(repo, args) { return execFileSync("git", ["-C", repo, ...args], { e
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "jsix-live-run-")); roots.push(root); const repo = join(root, "repo");
   await mkdir(join(repo, "src"), { recursive: true }); git(repo, ["init", "-q"]);
-  await writeFile(join(repo, "src/approval.mjs"), "export function approve() { return false; }\n");
+  await writeFile(join(repo, "src/approval.mjs"), "export function approve(amount, limit) { return false; }\n");
   git(repo, ["add", "."]); git(repo, ["commit", "-qm", "base"]);
   return { root, repo, baseCommit: git(repo, ["rev-parse", "HEAD"]) };
 }
@@ -26,7 +28,7 @@ describe("live TDD checkpoints", () => {
     const prepared = await prepareLiveTdd({ repo, worktreeRoot: join(root, "runs"), runId: "live-1", baseCommit });
     expect(() => execFileSync("test", ["-e", join(prepared.worktree, "tests/holdout.test.mjs")])).toThrow();
     await writeFile(join(prepared.worktree, "src/approval.mjs"), syntheticGreenCode);
-    const result = finalizeLiveTdd(prepared);
+    const result = finalizeLiveTdd(prepared, taskDefinition);
     expect(result.steps.map((step) => step.id)).toEqual(["holdout", "red", "green", "refactor"]);
     expect(new Set(result.steps.map((step) => step.commit)).size).toBe(4);
     expect(result.steps[3]).toMatchObject({ owner: "hub", outcome: "no_change", sourceCommit: result.steps[2].commit });
@@ -39,6 +41,14 @@ describe("live TDD checkpoints", () => {
     const { root, repo, baseCommit } = await fixture();
     const prepared = await prepareLiveTdd({ repo, worktreeRoot: join(root, "runs"), runId: "live-2", baseCommit });
     await writeFile(join(prepared.worktree, "tests/approval.test.mjs"), "// tampered\n");
-    await expect(Promise.resolve().then(() => finalizeLiveTdd(prepared))).rejects.toThrow(/許可した実装1ファイル/);
+    await expect(Promise.resolve().then(() => finalizeLiveTdd(prepared, taskDefinition))).rejects.toThrow(/許可した実装1ファイル/);
+  });
+
+  it("does not create a no-change checkpoint when a fixed G1 criterion fails", async () => {
+    const { root, repo, baseCommit } = await fixture();
+    const prepared = await prepareLiveTdd({ repo, worktreeRoot: join(root, "runs"), runId: "live-3", baseCommit });
+    await writeFile(join(prepared.worktree, "src/approval.mjs"), `${syntheticGreenCode}// child_process\n`);
+    expect(() => finalizeLiveTdd(prepared, taskDefinition)).toThrow(/sast/);
+    expect(git(prepared.worktree, ["log", "-1", "--pretty=%s"])).toBe("CLI Green candidate");
   });
 });

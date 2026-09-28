@@ -56,6 +56,8 @@ function assertStepHistory(worktree, steps) {
   }
   if (steps[3].outcome === "no_change" && (steps[3].owner !== "hub" ||
     steps[3].sourceCommit !== steps[2].commit || steps[3].criteria !== "fixed-synthetic-g1-and-tests" ||
+    !/^[0-9a-f]{64}$/.test(steps[3].criteriaEvidenceSha256 ?? "") ||
+    !steps[3].criteriaResults || Object.values(steps[3].criteriaResults).some((result) => result !== true) ||
     git(worktree, ["rev-parse", `${steps[2].commit}^{tree}`]) !== git(worktree, ["rev-parse", `${steps[3].commit}^{tree}`]))) {
     throw new Error("no-change Refactor checkpointが不正です");
   }

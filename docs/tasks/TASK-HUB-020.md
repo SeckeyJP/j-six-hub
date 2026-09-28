@@ -25,9 +25,11 @@
 
 ## 2026-09-29 検証記録
 
-- 実装・fake adapter検証: `typecheck`、`lint`、`build`、localhost待受と長時間service統合を除く40ファイル302テストが通過した。CLIの単回確認、失敗時再試行禁止、非公開ログhash、hold-outを外したGreen実行、15検査、証跡欠落時の `evidence_unknown` をservice統合テスト1件（他7件skip）で通過確認した。
+- 実装・fake adapter検証: 第1回成果物レビューのhigh/medium指摘を受け、provider別JSONL終端schemaと構造化Hook拒否、固定allowlist環境、有限の強制停止、全案件共通dispatch slot、request/claim/start/finish台帳、正規化manifest、P6証跡再照合、G1成功後だけの `no_change` 判定へ修正した。
+- `typecheck`、`lint`、`build` が通過した。HTTP server 1件を除く41ファイル320テストは分割実行ですべて通過した。内訳はservice/server以外40ファイル310件、serviceのCLI統合1件、排他・preflight 2件、P0〜P6長時間回帰1件、残りservice回帰6件である。
+- 条件付きcoverageはservice/serverを除く40ファイル310件で statements 63.22%、branches 52.34%、functions 68.98%、lines 64.32%。除外したservice/serverを0%として含むため、プロジェクト品質閾値には使わない。対象を含むserviceテスト結果を別に記録する。
 - Codex実session: ChatGPT認証、固定CLI、禁止環境変数なし、共通制御hash一致を確認後、読取smokeを1回だけ要求・起動した。管理サンドボックス内でCodex app-server初期化が `Operation not permitted` となり `failed`。同一案件世代では再試行せず、編集runも起動していない。
 - Claude Code実session: 利用者はsubscription枠と追加クレジット不使用を確認したが、CLIの `auth status` が未ログインだったためpreflightで `subscription-auth-unconfirmed` とし、要求保存・process起動とも0件にした。
 - 環境制約: この検証セッションではlocalhost待受も `EPERM` のため、HTTP境界テストと今回の画面再起動は未実行。直前の同一版ではP4画面と中央モニタをブラウザ確認済みだが、実CLI成功を示すものではない。
 
-したがって、実装と合成検査経路は検証済みだが、AC-LE-02の「両CLIのsubscriptionログインによる読取smoke成功」と実編集runは未達である。通常のローカル端末でClaude Codeへ再ログインし、各providerに新しい案件世代またはfixtureを用意した上で、別のレビュー済み検証計画として実施する。
+したがって、実装と合成検査経路は検証済みだが、AC-LE-02の「両CLIのsubscriptionログインによる読取smoke成功」と実編集runは未達である。第1回成果物レビューの実装指摘は修正したが、このlive受入未達を理由とする指摘は残る。通常のローカル端末でClaude Codeへ再ログインし、各providerに新しい案件世代またはfixtureを用意した上で、別のレビュー済み検証計画として実施する。

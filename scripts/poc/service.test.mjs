@@ -22,7 +22,7 @@ function git(repo, args) {
   }).trim();
 }
 
-/** @param {{cli?:boolean}} [options] */
+/** @param {{cli?:boolean,beforeAuth?:()=>Promise<void>,beforeWorkload?:()=>Promise<void>}} [options] */
 async function fixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), "jsix-service-"));
   roots.push(root);
@@ -63,13 +63,16 @@ async function fixture(options = {}) {
         let promise;
         if (first === "--version") promise = Promise.resolve({ code: 0, signal: null,
           stdout: `${provider} 0.test`, stderr: "", overflow: false, timedOut: false, cancelled: false });
-        else if (first === "login" || first === "auth") promise = Promise.resolve({ code: 0, signal: null,
-          stdout: provider === "codex" ? "Logged in using ChatGPT" : JSON.stringify({ loggedIn: true,
+        else if (first === "login" || first === "auth") promise = (async () => { await options.beforeAuth?.(); return {
+          code: 0, signal: null, stdout: provider === "codex" ? "Logged in using ChatGPT" : JSON.stringify({ loggedIn: true,
             authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }),
-          stderr: "", overflow: false, timedOut: false, cancelled: false });
-        else promise = (async () => { if (input.input.includes("TASK-001")) {
+          stderr: "", overflow: false, timedOut: false, cancelled: false }; })();
+        else promise = (async () => { await input.onStart?.(12345); if (input.input.includes("TASK-001")) {
           await writeFile(join(input.cwd, "src/approval.mjs"), syntheticGreenCode);
-        } return { code: 0, signal: null, stdout: '{"type":"item.completed","command":"git config --list","status":"denied"}\n',
+        } await options.beforeWorkload?.(); const stdout = provider === "codex" ?
+          '{"type":"thread.started","thread_id":"t-1"}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n' :
+          '{"type":"system","session_id":"s-1"}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n{"type":"result","subtype":"success","is_error":false,"session_id":"s-1","result":"ok"}\n';
+        return { code: 0, signal: null, stdout,
           stderr: "", overflow: false, timedOut: false, cancelled: false }; })();
         return { promise, cancel() {} };
       } };
@@ -78,7 +81,7 @@ async function fixture(options = {}) {
     synthetic: { repo, repoId: "synthetic" },
   }, cli });
   await service.initialize();
-  return { repo, ledgerRoot, commit, content, service, cliCalls };
+  return { repo, ledgerRoot, commit, content, service, cliCalls, cli };
 }
 
 /** @param {string} body */
@@ -87,10 +90,16 @@ const hash = (body) => createHash("sha256").update(body).digest("hex");
 const common = (head, projectId, generation, targetCommit) => ({ expectedHead: head, projectId,
   generation, targetCommit, policySha256: localPolicySha256 });
 
-/** @param {any} service @param {string} commit @param {Record<string,string>} content */
-async function advanceToP4(service, commit, content) {
+function deferred() {
+  /** @type {()=>void} */ let resolve = () => {};
+  const promise = new Promise((done) => { resolve = () => done(undefined); });
+  return { promise, resolve };
+}
+
+/** @param {any} service @param {string} commit @param {Record<string,string>} content @param {string|null=} expectedHead */
+async function advanceToP4(service, commit, content, expectedHead = null) {
   let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
-    expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
+    expectedHead, targetCommit: commit, policySha256: localPolicySha256 });
   const id = result.project.projectId;
   const phases = /** @type {Record<string,[string,string][]>} */ ({
     P0: [["constitution", "constitution.md"]],
@@ -136,6 +145,12 @@ describe("localhost service commands", () => {
     expect(edited.project.cli.runs.map((item) => `${item.provider}/${item.kind}/${item.state}`))
       .toEqual(["codex/smoke/succeeded", "codex/edit/succeeded"]);
     const logPath = join(ledgerRoot, "private-runs", edited.cliRun.runId, "events.log");
+    const manifest = JSON.parse(readFileSync(join(ledgerRoot, "private-runs", edited.cliRun.runId, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({ schemaVersion: 1, provider: "codex", kind: "edit",
+      preflight: { spawnAllowed: true, authMethod: "chatgpt", controls: "matched" },
+      process: { eventValidation: null, stopUnconfirmed: false }, result: { state: "succeeded" } });
+    expect(manifest.startRecordId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(manifest.promptSha256).toMatch(/^[0-9a-f]{64}$/);
     const log = readFileSync(logPath);
     await unlink(logPath);
     const missingEvidence = await service.detail(id);
@@ -145,6 +160,49 @@ describe("localhost service commands", () => {
     await expect(service.runCli({ ...common(edited.head, id, 0, commit), provider: "codex", kind: "edit" }))
       .rejects.toThrow(/回数上限|確認/);
   }, 300_000);
+
+  it("keeps one global dispatch slot and reconstructs a pending run after restart", async () => {
+    const gate = deferred();
+    const { service, commit, content, cliCalls, ledgerRoot, repo, cli } = await fixture({ cli: true,
+      beforeWorkload: () => gate.promise });
+    let current = await advanceToP4(service, commit, content); const id = current.project.projectId;
+    let second = await advanceToP4(service, commit, content, current.head); const secondId = second.project.projectId;
+    current = await service.detail(id);
+    current = await service.confirmSubscription({ ...common(current.head, id, 0, commit), provider: "codex" });
+    const running = service.runCli({ ...common(current.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    try {
+      await vi.waitFor(() => expect(cliCalls.filter((call) => call.args[0] === "exec")).toHaveLength(1), { timeout: 20_000 });
+      const restored = createPocService({ ledgerRoot, process: processDefinition,
+        fixtures: { synthetic: { repo, repoId: "synthetic" } }, cli });
+      await restored.initialize();
+      const pending = await restored.detail(id);
+      expect(pending.project.cli.runs.at(-1)?.state).toBe("started");
+      second = await restored.detail(secondId);
+      await expect(restored.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" }))
+        .rejects.toThrow(/未確定/);
+      expect(cliCalls.filter((call) => call.args[0] === "-p")).toHaveLength(0);
+    } finally { gate.resolve(); }
+    expect((await running).cliRun.state).toBe("succeeded");
+  }, 150_000);
+
+  it("blocks project reopen and detects an external HEAD change before workload spawn", async () => {
+    const gate = deferred();
+    const { service, commit, content, cliCalls, repo } = await fixture({ cli: true, beforeAuth: () => gate.promise });
+    let current = await advanceToP4(service, commit, content); const id = current.project.projectId;
+    current = await service.confirmSubscription({ ...common(current.head, id, 0, commit), provider: "codex" });
+    const pendingRun = service.runCli({ ...common(current.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    try {
+      await vi.waitFor(() => expect(cliCalls.filter((call) => call.args[0] === "login")).toHaveLength(1), { timeout: 20_000 });
+      const pending = await service.detail(id);
+      await expect(service.execute({ type: "phase.reopen", ...common(pending.head, id, 0, commit), phase: "P3",
+        reason: "Synthetic change during preflight" })).rejects.toThrow(/未確定/);
+      expect(cliCalls.filter((call) => call.args[0] === "exec")).toHaveLength(0);
+      await writeFile(join(repo, "external-change.md"), "changed during preflight\n");
+      git(repo, ["add", "external-change.md"]); git(repo, ["commit", "-qm", "external change during preflight"]);
+    } finally { gate.resolve(); }
+    await expect(pendingRun).rejects.toThrow(/対象Git commit|変わりました/);
+    expect(cliCalls.filter((call) => call.args[0] === "exec")).toHaveLength(0);
+  }, 90_000);
 
   it("replays a synthetic project through P0 to P4 with real Git evidence", async () => {
     const { service, commit, content, ledgerRoot, repo } = await fixture();
@@ -396,7 +454,7 @@ describe("localhost service commands", () => {
   }, 60_000);
 
   it("records a fixed fake TDD run and real G1/G2 checks before candidate acceptance", async () => {
-    const { service, commit, content, repo, ledgerRoot } = await fixture();
+    const { service, commit, content, repo, ledgerRoot } = await fixture({ cli: true });
     let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
       expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
     const id = result.project.projectId;
@@ -421,6 +479,12 @@ describe("localhost service commands", () => {
       result = await service.execute({ type: "phase.transition", ...common(result.head, id, 0, commit) });
     }
     expect(result.project.phase).toBe("P4");
+    result = await service.confirmSubscription({ ...common(result.head, id, 0, commit), provider: "codex" });
+    const smoke = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(smoke.cliRun.state).toBe("succeeded");
+    const smokeManifest = join(ledgerRoot, "private-runs", smoke.cliRun.runId, "manifest.json");
+    const smokeManifestBody = readFileSync(smokeManifest);
+    result = smoke;
     const generated = await service.runFake({ ...common(result.head, id, 0, commit) });
     expect(generated.run.mode).toBe("fake");
     expect(generated.run.checks).toHaveLength(15);
@@ -476,7 +540,12 @@ describe("localhost service commands", () => {
     git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "restore quality evidence"]);
     changedEvidence = await service.detail(id);
     expect(changedEvidence.project.missing.some((reason) => reason.startsWith("passed-check:"))).toBe(false);
-    current = /** @type {{head:string,project:any}} */ (changedEvidence);
+    await unlink(smokeManifest);
+    let missingCliEvidence = await service.detail(id);
+    await expect(service.prepareDeliverables(common(missingCliEvidence.head, id, 0, missingCliEvidence.project.targetCommit)))
+      .rejects.toThrow(/証跡/);
+    await writeFile(smokeManifest, smokeManifestBody, { mode: 0o600 });
+    current = /** @type {{head:string,project:any}} */ (await service.detail(id));
     const delivery = await service.prepareDeliverables(common(current.head, id, 0, current.project.targetCommit));
     current = await service.execute({ type: "artifact.submit", ...common(delivery.head, id, 0, delivery.project.targetCommit),
       artifactId: "reverse_generated_docs", path: "docs/reverse-generated.md",
@@ -485,6 +554,15 @@ describe("localhost service commands", () => {
     current = await service.execute({ type: "decision.record", ...common(current.head, id, 0, current.project.targetCommit),
       outcome: "approved", role: "customer", reason: "Synthetic deliverable review only",
       expiresAt: "2099-01-01T00:00:00.000Z" });
+    expect(current.project.canComplete).toBe(true);
+    await unlink(smokeManifest);
+    missingCliEvidence = await service.detail(id);
+    expect(missingCliEvidence.project.canComplete).toBe(false);
+    expect(missingCliEvidence.project.missing).toContain(`cli-evidence:${smoke.cliRun.runId}:unknown`);
+    await expect(service.execute({ type: "phase.complete",
+      ...common(missingCliEvidence.head, id, 0, missingCliEvidence.project.targetCommit) })).rejects.toThrow(/完了条件/);
+    await writeFile(smokeManifest, smokeManifestBody, { mode: 0o600 });
+    current = /** @type {{head:string,project:any}} */ (await service.detail(id));
     expect(current.project.canComplete).toBe(true);
     current = await service.execute({ type: "phase.complete", ...common(current.head, id, 0, current.project.targetCommit) });
     expect(current.project.completed).toBe(true);
