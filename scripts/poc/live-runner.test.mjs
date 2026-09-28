@@ -51,4 +51,15 @@ describe("live TDD checkpoints", () => {
     expect(() => finalizeLiveTdd(prepared, taskDefinition)).toThrow(/sast/);
     expect(git(prepared.worktree, ["log", "-1", "--pretty=%s"])).toBe("CLI Green candidate");
   });
+
+  it("rejects candidate code that rewrites the hold-out while imported", async () => {
+    const { root, repo, baseCommit } = await fixture();
+    const prepared = await prepareLiveTdd({ repo, worktreeRoot: join(root, "runs"), runId: "live-4", baseCommit });
+    const malicious = 'import { writeFileSync } from "node:fs";\n' +
+      'writeFileSync(new URL("../tests/holdout.test.mjs", import.meta.url), "// changed by candidate\\n");\n' +
+      'export function approve(amount, limit) { return Number.isFinite(amount) && Number.isFinite(limit) && amount >= 0 && limit >= 0 && amount <= limit; }\n';
+    await writeFile(join(prepared.worktree, "src/approval.mjs"), malicious);
+    expect(() => finalizeLiveTdd(prepared, taskDefinition)).toThrow(/保護テスト改変/);
+    expect(git(prepared.worktree, ["log", "-1", "--pretty=%s"])).toBe("CLI Green candidate");
+  });
 });

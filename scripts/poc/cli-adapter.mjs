@@ -54,6 +54,10 @@ function normalizedAuth(provider, output) {
   } catch { return { authenticated: false, method: "unknown" }; }
 }
 
+/** @param {any} outcome */
+const helperSucceeded = (outcome) => outcome?.code === 0 && !outcome?.timedOut && !outcome?.cancelled &&
+  !outcome?.overflow && !outcome?.stopUnconfirmed;
+
 /** Run a bounded process without a shell. The returned controller is used by the local cancel endpoint. */
 /** @param {{executable:string,args:string[],cwd:string,env:NodeJS.ProcessEnv,input:string,timeoutMs:number,onStart?:(pid:number)=>void|Promise<void>}} inputOptions @returns {ProcessTask} */
 export function spawnBounded({ executable, args, cwd, env, input, timeoutMs, onStart = () => {} }) {
@@ -235,13 +239,13 @@ export function createCliAdapters(options) {
       env: executionEnvironment(), input: "", timeoutMs: 15_000 });
     const versionOutcome = await versionTask.promise;
     const version = (versionOutcome.stdout + versionOutcome.stderr).trim().slice(0, 120);
-    if (versionOutcome.code !== 0 || !version) return { ok: false, reason: "cli-version-unconfirmed", spawnAllowed: false };
+    if (!helperSucceeded(versionOutcome) || !version) return { ok: false, reason: "cli-version-unconfirmed", spawnAllowed: false };
     const authArgs = provider === "codex" ? ["login", "status"] : ["auth", "status", "--json"];
     const auth = runProcess({ executable, args: authArgs, cwd: home,
       env: executionEnvironment(), input: "", timeoutMs: 15_000 });
     const outcome = await auth.promise;
     const normalized = normalizedAuth(provider, outcome.stdout + outcome.stderr);
-    if (outcome.code !== 0 || !normalized.authenticated) {
+    if (!helperSucceeded(outcome) || !normalized.authenticated) {
       return { ok: false, reason: "subscription-auth-unconfirmed", authMethod: normalized.method, spawnAllowed: false };
     }
     return { ok: true, reason: null, spawnAllowed: true, provider, adapterId: definition.adapterId,

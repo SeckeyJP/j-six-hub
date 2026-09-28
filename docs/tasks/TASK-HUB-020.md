@@ -28,7 +28,8 @@
 - 実装・fake adapter検証: provider別JSONL終端schemaと構造化Hook拒否、固定allowlist環境、有限の強制停止、全案件共通dispatch slot、request/claim/start/finish台帳、正規化manifest、P6証跡再照合、G1成功後だけの `no_change` 判定を実装した。
 - 停止境界: 直接のCLI processが先に終了してもprocess groupの強制停止と残存確認を続ける。共通指示書とHook起動スクリプトも各preflightのhash照合対象とし、画面の取消操作はローカルprocessを確認できる `started` 状態だけに表示する。
 - 完了境界: 正常終了した直接processが子孫を残した場合も停止・残存確認を終えるまで枠を解放しない。smokeは固定JSON結果を検証し、保存する合算UTF-8ログと同じ内容をhash化する。再起動後の未照合runは `unknown` として投影する。
-- `typecheck`、`lint`、`build` が通過した。service/server以外41ファイル319件、CLI停止・schema・hash・UI状態の対象回帰23件が通過した。再起動後の状態を含むservice回帰は対象1件が通過し、同ファイルの他9件はこの実行ではskipした。
+- 検査境界: 候補実行の前後で可視テスト・hold-outのhashとclean treeを照合し、実行時改変を拒否する。version/auth補助processもtimeout・cancel・出力超過・停止未確認のない正常終了だけをpreflight成功とする。
+- `typecheck`、`lint`、`build` が通過した。service/server以外41ファイル324件、CLI・live runner・UI状態の対象回帰31件が通過した。再起動後の状態を含むservice回帰は対象1件が通過し、同ファイルの他9件はこの実行ではskipした。
 - 条件付きcoverageは修正前のservice/server除外結果で statements 63.22%、branches 52.34%、functions 68.98%、lines 64.32%。除外したservice/serverを0%として含むため、プロジェクト品質閾値には使わない。対象を含むserviceテスト結果を別に記録する。
 - Codex実session: ChatGPT認証、固定CLI、禁止環境変数なし、共通制御hash一致を確認後、読取smokeを1回だけ要求・起動した。管理サンドボックス内でCodex app-server初期化が `Operation not permitted` となり `failed`。同一案件世代では再試行せず、編集runも起動していない。
 - Claude Code実session: 利用者はsubscription枠と追加クレジット不使用を確認したが、CLIの `auth status` が未ログインだったためpreflightで `subscription-auth-unconfirmed` とし、要求保存・process起動とも0件にした。

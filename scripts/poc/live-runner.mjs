@@ -14,6 +14,13 @@ const hubRoot = process.cwd();
 /** @param {string|Buffer} value */
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
+/** @param {string} worktree @param {{holdout:string,red:string}} expected */
+function protectedFilesMatch(worktree, expected) {
+  return sha(readFileSync(join(worktree, "tests/holdout.test.mjs"))) === expected.holdout &&
+    sha(readFileSync(join(worktree, "tests/approval.test.mjs"))) === expected.red &&
+    git(worktree, ["status", "--porcelain"]) === "";
+}
+
 /** @param {string} repo @param {string[]} args */
 function git(repo, args) {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", env: gitEnv,
@@ -117,13 +124,20 @@ export function finalizeLiveTdd(prepared, taskDefinition) {
   git(worktree, ["add", "--", "src/approval.mjs"]); git(worktree, ["commit", "-qm", "CLI Green candidate"]);
   const greenCommit = git(worktree, ["rev-parse", "HEAD"]);
   git(worktree, ["sparse-checkout", "disable"]);
+  const protectedHashes = {
+    holdout: sha(readFileSync(join(worktree, "tests/holdout.test.mjs"))),
+    red: sha(readFileSync(join(worktree, "tests/approval.test.mjs"))),
+  };
   const green = testRun(worktree, ["tests/approval.test.mjs", "tests/holdout.test.mjs"]);
-  if (green.status !== "passed") throw new Error("Green候補の可視・hold-outテストが失敗しました");
+  if (green.status !== "passed" || !protectedFilesMatch(worktree, protectedHashes)) {
+    throw new Error("Green候補のテスト失敗または保護テスト改変を検出しました");
+  }
   const criteria = noChangeEligibility(worktree, prepared.baseCommit, greenCommit, taskDefinition);
+  if (!protectedFilesMatch(worktree, protectedHashes)) throw new Error("Refactor検査中の保護テスト改変を検出しました");
   git(worktree, ["commit", "--allow-empty", "-qm", "Hub Refactor checkpoint: no change"]);
   const refactorCommit = git(worktree, ["rev-parse", "HEAD"]);
   const refactor = testRun(worktree, ["tests/approval.test.mjs", "tests/holdout.test.mjs"]);
-  if (refactor.status !== "passed" || git(worktree, ["rev-parse", `${greenCommit}^{tree}`]) !==
+  if (refactor.status !== "passed" || !protectedFilesMatch(worktree, protectedHashes) || git(worktree, ["rev-parse", `${greenCommit}^{tree}`]) !==
     git(worktree, ["rev-parse", `${refactorCommit}^{tree}`])) throw new Error("no-change Refactor再検証が不正です");
   return { mode: "live", runId: prepared.runId, baseCommit: prepared.baseCommit, candidateCommit: refactorCommit,
     steps: [...prepared.steps,

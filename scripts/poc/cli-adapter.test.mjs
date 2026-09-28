@@ -93,6 +93,28 @@ describe("subscription CLI adapters", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it.each([
+    ["version timeout", "version", { timedOut: true }],
+    ["auth timeout", "auth", { timedOut: true }],
+    ["auth output overflow", "auth", { overflow: true }],
+    ["auth stop unconfirmed", "auth", { stopUnconfirmed: true }],
+  ])("does not start a workload after %s", async (_label, unhealthyStage, flags) => {
+    const base = await fixture();
+    /** @type {any[]} */ const calls = [];
+    const adapters = createCliAdapters({ executables: { codex: join(base.root, "codex"), claude: join(base.root, "claude") },
+      controls: { files: [{ path: base.hook, sha256: sha("fixed hook\n") }], codexTrusted: true }, env: {}, home: base.root,
+      now: () => new Date("2026-09-28T03:00:00Z"), runProcess(input) {
+        calls.push(input); const stage = input.args[0] === "--version" ? "version" : input.args[0] === "login" ? "auth" : "workload";
+        const output = stage === "version" ? "codex-cli 0.test" : stage === "auth" ? "Logged in using ChatGPT" : "";
+        return { promise: Promise.resolve({ code: 0, signal: null, stdout: output, stderr: "", overflow: false,
+          timedOut: false, cancelled: false, stopUnconfirmed: false, ...(stage === unhealthyStage ? flags : {}) }), cancel() {} };
+      } });
+    const result = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
+      prompt: "fixed", confirmation: base.confirmation("codex") });
+    expect(result.state).toBe("held");
+    expect(calls.some((call) => call.args[0] === "exec")).toBe(false);
+  });
+
   it("does not accept a smoke run without an observed real-session hook denial", async () => {
     const base = await fixture();
     /** @type {any[]} */ const calls = [];

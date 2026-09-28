@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -160,8 +161,18 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
     return { candidateCommit: candidate.candidateCommit, checks };
   }
   const tests = run(worktree, process.execPath, ["--test", "tests/approval.test.mjs", "tests/holdout.test.mjs"]);
-  record("G2", "tests", tests.ok ? "passed" : "failed", tests.output,
+  const protectedAfterTests = sha(readFileSync(join(worktree, "tests/approval.test.mjs"))) === sha(unit) &&
+    sha(readFileSync(join(worktree, "tests/holdout.test.mjs"))) === sha(holdout) &&
+    git(worktree, ["status", "--porcelain"]) === "";
+  record("G2", "tests", tests.ok && protectedAfterTests ? "passed" : "failed",
+    `${tests.output}\nprotectedFilesUnchanged=${protectedAfterTests}`,
     "node --test tests/approval.test.mjs tests/holdout.test.mjs", "node");
+  if (!tests.ok || !protectedAfterTests) {
+    for (const id of localPolicy.requiredCheckIds.slice(checks.length)) {
+      record("G2", id, "not_run", "Blocked because candidate execution changed protected tests.", "not run");
+    }
+    return { candidateCommit: candidate.candidateCommit, checks };
+  }
   const coverage = run(worktree, process.execPath, ["--experimental-test-coverage", "--test",
     "tests/approval.test.mjs", "tests/holdout.test.mjs"]);
   const coverageRow = /all files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/.exec(coverage.output);
