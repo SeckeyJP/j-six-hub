@@ -1,8 +1,8 @@
 # Design Spec — 開発者ワークベンチと全工程のローカル実行
 
-**版**: 0.1 | **日付**: 2026-09-27 | **状態**: 段階実装中（2026-09-28時点でP0〜P3のlocalhost API・画面まで） | 要求: [developer-journey-requirement-spec.md](developer-journey-requirement-spec.md)
+**版**: 0.1 | **日付**: 2026-09-27 | **状態**: 段階実装中（固定合成タスクによるP0〜P6 dry runまで。実CLIは未実装） | 要求: [developer-journey-requirement-spec.md](developer-journey-requirement-spec.md)
 
-本書は[単一run設計](local-execution-design-spec.md)の外側に、J-SIX Phase 0〜6の案件・提出・ゲートを置く。公開[リプレイ設計](design-spec.md)は変更しない。実装は段階ごとの計画・独立レビューを経て進める。現在のlocalhost APIと画面はP0〜P3の操作と中央監視までで、CLI・P4〜P6の実検査と全工程一巡は未実装。
+本書は[単一run設計](local-execution-design-spec.md)の外側に、J-SIX Phase 0〜6の案件・提出・ゲートを置く。公開[リプレイ設計](design-spec.md)は変更しない。実装は段階ごとの計画・独立レビューを経て進める。現在のlocalhost APIと画面は固定合成タスクを用いたP0〜P6の dry run と中央監視まで実装。P4の候補生成はfake adapterで、Codex／Claude Code CLI接続は未実装。
 
 ## 1. 境界と実行構成
 

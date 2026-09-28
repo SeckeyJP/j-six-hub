@@ -44,10 +44,11 @@ async function jsonBody(req) {
 /** @param {string} pathname @param {Record<string,any>} body */
 function mappedCommand(pathname, body) {
   if (pathname === "/api/projects") return { ...body, type: "project.create" };
-  const match = /^\/api\/projects\/([0-9a-f-]{36})\/(artifacts|review-requests|decisions|transitions|reopen)$/.exec(pathname);
+  const match = /^\/api\/projects\/([0-9a-f-]{36})\/(artifacts|review-requests|decisions|transitions|reopen|complete)$/.exec(pathname);
   if (!match) return null;
   const type = /** @type {Record<string,string>} */ ({ artifacts: "artifact.submit", "review-requests": "review.request",
-    decisions: "decision.record", transitions: "phase.transition", reopen: "phase.reopen" })[match[2] ?? ""];
+    decisions: "decision.record", transitions: "phase.transition", reopen: "phase.reopen",
+    complete: "phase.complete" })[match[2] ?? ""];
   return { ...body, projectId: match[1], type };
 }
 
@@ -97,8 +98,17 @@ export async function startPocServer({ service, port = 0 }) {
       if (req.method === "GET" && detailMatch) {
         send(res, 200, await service.detail(detailMatch[1] ?? "")); return;
       }
-      const command = req.method === "POST" ? mappedCommand(pathname, await jsonBody(req)) : null;
+      const body = req.method === "POST" ? await jsonBody(req) : null;
+      const command = body ? mappedCommand(pathname, body) : null;
       if (command) { send(res, 200, await service.execute(command)); return; }
+      const action = /^\/api\/projects\/([0-9a-f-]{36})\/(fake-runs|accept-candidates|integration|deliverables)$/.exec(pathname);
+      if (body && action) {
+        const input = { ...body, projectId: action[1] };
+        const operation = action[2] === "fake-runs" ? service.runFake :
+          action[2] === "accept-candidates" ? service.acceptCandidate :
+            action[2] === "integration" ? service.runIntegration : service.prepareDeliverables;
+        send(res, 200, await operation(input)); return;
+      }
       send(res, 404, { error: "未対応の操作です" });
     } catch (error) {
       const message = safeMessage(error);
