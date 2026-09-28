@@ -22,7 +22,7 @@ function git(repo, args) {
   }).trim();
 }
 
-/** @param {{cli?:boolean,beforeAuth?:()=>Promise<void>,beforeWorkload?:()=>Promise<void>}} [options] */
+/** @param {{cli?:boolean,beforeAuth?:()=>Promise<void>,beforeWorkload?:(input:any)=>Promise<void>}} [options] */
 async function fixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), "jsix-service-"));
   roots.push(root);
@@ -69,7 +69,7 @@ async function fixture(options = {}) {
           stderr: "", overflow: false, timedOut: false, cancelled: false }; })();
         else promise = (async () => { await input.onStart?.(12345); if (input.input.includes("TASK-001")) {
           await writeFile(join(input.cwd, "src/approval.mjs"), syntheticGreenCode);
-        } await options.beforeWorkload?.(); const summary = JSON.stringify({ status: "ok", file: "src/approval.mjs", hook: "denied" });
+        } await options.beforeWorkload?.(input); const summary = JSON.stringify({ status: "ok", file: "src/approval.mjs", hook: "denied" });
         const stdout = provider === "codex" ?
           `${JSON.stringify({ type: "thread.started", thread_id: "t-1" })}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: summary } })}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n` :
           `${JSON.stringify({ type: "system", session_id: "s-1" })}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n${JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "s-1", result: summary })}\n`;
@@ -156,11 +156,25 @@ describe("localhost service commands", () => {
     await unlink(logPath);
     const missingEvidence = await service.detail(id);
     expect(missingEvidence.project.cli.runs.at(-1)?.state).toBe("evidence_unknown");
-    expect(missingEvidence.project.missing).toContain(`cli-evidence:${edited.cliRun.runId}:unknown`);
+    expect(missingEvidence.project.missing).toContain(`cli-evidence:${edited.cliRun.runId}:evidence_unknown`);
     await writeFile(logPath, log, { mode: 0o600 });
     await expect(service.runCli({ ...common(edited.head, id, 0, commit), provider: "codex", kind: "edit" }))
       .rejects.toThrow(/回数上限|確認/);
   }, 300_000);
+
+  it("rejects a read-only smoke that commits a repository change", async () => {
+    const { service, commit, content } = await fixture({ cli: true, async beforeWorkload(input) {
+      if (!input.input.includes("TASK-001")) {
+        await writeFile(join(input.cwd, "src/approval.mjs"), "export function approve() { return true; }\n");
+        git(input.cwd, ["add", "src/approval.mjs"]); git(input.cwd, ["commit", "-qm", "forbidden smoke change"]);
+      }
+    } });
+    let result = await advanceToP4(service, commit, content); const id = result.project.projectId;
+    result = await service.confirmSubscription({ ...common(result.head, id, 0, commit), provider: "codex" });
+    const smoke = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(smoke.cliRun.state).toBe("inspection_failed");
+    expect(smoke.project.cli.runs.at(-1)?.stopReason).toMatch(/対象commit/);
+  }, 120_000);
 
   it("keeps one global dispatch slot and reconstructs a pending run after restart", async () => {
     const gate = deferred();
@@ -563,7 +577,7 @@ describe("localhost service commands", () => {
     await unlink(smokeManifest);
     missingCliEvidence = await service.detail(id);
     expect(missingCliEvidence.project.canComplete).toBe(false);
-    expect(missingCliEvidence.project.missing).toContain(`cli-evidence:${smoke.cliRun.runId}:unknown`);
+    expect(missingCliEvidence.project.missing).toContain(`cli-evidence:${smoke.cliRun.runId}:evidence_unknown`);
     await expect(service.execute({ type: "phase.complete",
       ...common(missingCliEvidence.head, id, 0, missingCliEvidence.project.targetCommit) })).rejects.toThrow(/完了条件/);
     await writeFile(smokeManifest, smokeManifestBody, { mode: 0o600 });

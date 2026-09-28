@@ -295,7 +295,7 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
         claimed ? "投入claim済みの外部作用を照合してください" : "Hub再起動時は自動再投入しません") };
   });
   const cliEvidenceGaps = cliRuns.filter((item) => item.state !== "succeeded")
-    .map((item) => `cli-evidence:${item.runId}:${item.state === "evidence_unknown" ? "unknown" : item.state}`);
+    .map((item) => `cli-evidence:${item.runId}:${item.state}`);
   return { projectId, fixtureId: created.payload.fixtureId, targetRepoId: fixture.repoId,
     targetCommit, baseCommit: created.payload.targetCommit, policySha256: localPolicySha256,
     processSha256: created.payload.processSha256, phase: projection.phase,
@@ -881,7 +881,9 @@ export function createPocService(config) {
       adapterResult.process?.eventValidation ?? (adapterResult.process?.stopUnconfirmed ? "process-stop-unconfirmed" : null);
     try {
       if (adapterResult.state === "succeeded" && request.payload.kind === "smoke") {
-        if (git(worktree, ["status", "--porcelain"])) throw new Error("読取smokeがGit差分を作成しました");
+        if (head(worktree) !== request.payload.baseCommit || git(worktree, ["status", "--porcelain"])) {
+          throw new Error("読取smokeが対象commitまたはGit差分を変更しました");
+        }
       } else if (adapterResult.state === "succeeded" && prepared) {
         const projectRecords = recordsFor((await readLedger(config.ledgerRoot)).records, command.projectId);
         const taskDefinition = passedText(projectRecords, fixture.repo, requested.project.targetCommit, "task_definition").text;

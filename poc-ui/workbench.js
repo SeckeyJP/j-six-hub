@@ -1,4 +1,4 @@
-import { canCancelCliRun } from "/run-state.mjs";
+import { canCancelCliRun, explainCliEvidence } from "/run-state.mjs";
 
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const byId = (id) => document.getElementById(id);
@@ -180,7 +180,7 @@ function explainMissing(reason, project) {
   if (reason === "target:commit-changed") return "対象Git commitが提出時から変わりました";
   if (reason === "target:baseline-unverified") return "基準commitの系列を照合できません";
   if (reason === "policy:changed") return "PoC方針版が変わりました";
-  if (reason.startsWith("cli-evidence:")) return `CLI非公開ログが欠落またはhash不一致です (${reason.split(":")[1]})`;
+  if (reason.startsWith("cli-evidence:")) return explainCliEvidence(reason);
   if (reason === "completion:target-changed-reopen-required") return "完了後に対象commitが変わりました。Phaseを差し戻して再確認してください";
   return reason;
 }
@@ -224,6 +224,7 @@ function renderDetail() {
       const runs = element("ul");
       for (const item of project.cli.runs) {
         const row = element("li", `${item.provider} / ${item.kind}: ${item.state} · run ${item.runId}`, "code");
+        if (item.stopReason) row.append(" ", element("span", `理由: ${item.stopReason}`, "blocked"));
         if (canCancelCliRun(item.state)) {
           const cancel = element("button", "取消を要求"); cancel.type = "button";
           cancel.addEventListener("click", async () => { try { await command("cli-cancel", { ...common(project), runId: item.runId }); await refresh(); }
