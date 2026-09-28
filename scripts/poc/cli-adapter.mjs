@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { readFile, realpath } from "node:fs/promises";
 import { basename } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 const outputLimit = 256 * 1024;
 const confirmationTtlMs = 5 * 60 * 1000;
@@ -64,7 +65,7 @@ export function spawnBounded({ executable, args, cwd, env, input, timeoutMs, onS
   let timedOut = false;
   let cancelled = false;
   let outputLimited = false;
-  /** @type {(reason:"timeout"|"cancel"|"output")=>void} */ let stop = () => {};
+  /** @type {(reason:"timeout"|"cancel"|"output"|"descendant")=>void} */ let stop = () => {};
   const promise = new Promise((resolve, reject) => {
     let settled = false; let stdout = Buffer.alloc(0); let stderr = Buffer.alloc(0); let overflow = false;
     let stopRequested = false;
@@ -82,7 +83,7 @@ export function spawnBounded({ executable, args, cwd, env, input, timeoutMs, onS
       resolve({ code, signal, stdout: stdout.toString("utf8"), stderr: stderr.toString("utf8"),
         overflow, timedOut, cancelled, stopUnconfirmed });
     };
-    /** @param {"timeout"|"cancel"|"output"} reason */
+    /** @param {"timeout"|"cancel"|"output"|"descendant"} reason */
     const requestStop = (reason) => {
       if (reason === "timeout") timedOut = true;
       if (reason === "cancel") cancelled = true;
@@ -123,7 +124,10 @@ export function spawnBounded({ executable, args, cwd, env, input, timeoutMs, onS
     });
     child.once("close", (code, signal) => {
       closeCode = code; closeSignal = signal;
-      if (!stopRequested) finish(code, signal);
+      if (!stopRequested) {
+        if (groupAlive()) requestStop("descendant");
+        else finish(code, signal);
+      }
     });
     timer = setTimeout(() => requestStop("timeout"), timeoutMs);
   });
@@ -169,13 +173,23 @@ function validateEvents(provider, stdout, kind) {
   const failed = events.some((event) => event.type === "error" || event.type === "turn.failed" ||
     event.type === "result" && (event.is_error === true || event.subtype === "error"));
   const hookObserved = kind !== "smoke" || events.some(provider === "codex" ? codexHookDenied : claudeHookDenied);
+  let smokeResultValid = true;
+  if (kind === "smoke") {
+    const text = provider === "codex" ? events.find((event) => event.type === "item.completed" &&
+      event.item?.type === "agent_message")?.item?.text : terminal[0]?.result;
+    try {
+      const value = JSON.parse(text);
+      smokeResultValid = value && !Array.isArray(value) && value.status === "ok" &&
+        value.file === "src/approval.mjs" && value.hook === "denied";
+    } catch { smokeResultValid = false; }
+  }
   const identifiers = {};
   for (const event of events) {
     if (!identifiers.sessionId && typeof (event.thread_id ?? event.session_id) === "string") identifiers.sessionId = event.thread_id ?? event.session_id;
     if (!identifiers.model && typeof event.model === "string") identifiers.model = event.model;
   }
-  return { ok: lines.length > 0 && terminal.length === 1 && !failed, reason: failed ? "provider-error" :
-    terminal.length !== 1 ? "terminal-event-missing-or-duplicate" : null,
+  return { ok: lines.length > 0 && terminal.length === 1 && !failed && smokeResultValid, reason: failed ? "provider-error" :
+    terminal.length !== 1 ? "terminal-event-missing-or-duplicate" : !smokeResultValid ? "smoke-result-invalid" : null,
   count: events.length, hookObserved, identifiers };
 }
 
@@ -256,14 +270,17 @@ export function createCliAdapters(options) {
     onController?.(task);
     const outcome = await task.promise;
     const raw = sanitize(outcome.stdout + outcome.stderr, home);
+    const rawBytes = Buffer.from(raw);
+    const output = new StringDecoder("utf8").write(rawBytes.subarray(0, outputLimit));
+    const combinedOverflow = rawBytes.length > outputLimit;
     const parsed = validateEvents(provider, outcome.stdout, kind);
     const state = outcome.stopUnconfirmed ? "stop_unconfirmed" : outcome.cancelled ? "cancelled" : outcome.timedOut ? "timed_out" :
-      outcome.overflow ? "output_limit" : outcome.code !== 0 ? "failed" :
+      outcome.overflow || combinedOverflow ? "output_limit" : outcome.code !== 0 ? "failed" :
         !parsed.ok ? "invalid_events" : !parsed.hookObserved ? "hook_unobserved" : "succeeded";
     return { state, preflight: checked, process: { startedAt, finishedAt: now().toISOString(),
       exitCode: outcome.code, signal: outcome.signal, jsonEvents: parsed.count, hookObserved: parsed.hookObserved,
       eventValidation: parsed.reason, identifiers: parsed.identifiers, stopUnconfirmed: !!outcome.stopUnconfirmed,
-      outputSha256: sha(raw), output: raw.slice(0, outputLimit), adapterId: definitions[provider].adapterId,
+      outputSha256: sha(output), output, adapterId: definitions[provider].adapterId,
       provider, kind, promptSha256: sha(prompt), args: invocation.args.map((arg) => arg === worktree ? "<worktree>" : arg) } };
   }
 

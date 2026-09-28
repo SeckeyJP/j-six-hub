@@ -8,6 +8,8 @@ import { createCliAdapters, spawnBounded } from "./cli-adapter.mjs";
 /** @type {string[]} */ const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 /** @param {string|Buffer} value */ const sha = (value) => createHash("sha256").update(value).digest("hex");
+const smokeSummary = JSON.stringify({ status: "ok", file: "src/approval.mjs", hook: "denied" });
+const codexSummaryEvent = JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: smokeSummary } });
 
 /** @param {Record<string,any>} [overrides] */
 async function fixture(overrides = {}) {
@@ -22,8 +24,8 @@ async function fixture(overrides = {}) {
     const auth = input.args[0] === "login" ? "Logged in using ChatGPT" :
       JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" });
     const workload = input.executable.endsWith("codex") ?
-      '{"type":"thread.started","thread_id":"t-1"}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n' :
-      '{"type":"system","session_id":"s-1"}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n{"type":"result","subtype":"success","is_error":false,"session_id":"s-1","result":"ok"}\n';
+      `{"type":"thread.started","thread_id":"t-1"}\n${codexSummaryEvent}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n` :
+      `${JSON.stringify({ type: "system", session_id: "s-1" })}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n${JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "s-1", result: smokeSummary })}\n`;
     const output = input.args[0] === "--version" ? `${providerVersion(input.executable)}\n` :
       input.args[0] === "exec" || input.args[0] === "-p" ? workload : auth;
     return { promise: Promise.resolve({ code: 0, signal: null, stdout: output,
@@ -98,7 +100,7 @@ describe("subscription CLI adapters", () => {
       controls: { files: [{ path: base.hook, sha256: sha("fixed hook\n") }], codexTrusted: true }, env: {}, home: base.root,
       now: () => new Date("2026-09-28T03:00:00Z"), runProcess(/** @type {any} */ input) { calls.push(input); const auth = input.args[0] === "login";
         const output = input.args[0] === "--version" ? "codex-cli 0.test" : auth ? "Logged in using ChatGPT" :
-          '{"type":"thread.started"}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n';
+          `{"type":"thread.started"}\n${codexSummaryEvent}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n`;
         return { promise: Promise.resolve({ code: 0, signal: null, stdout: output,
           stderr: "", overflow: false, timedOut: false, cancelled: false }), cancel() {} }; } });
     const result = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
@@ -107,7 +109,7 @@ describe("subscription CLI adapters", () => {
   });
 
   it.each([
-    ["agent claim", '{"type":"thread.started"}\n{"type":"item.completed","item":{"type":"agent_message","text":"git config --list denied by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n', "hook_unobserved"],
+    ["agent claim", `{"type":"thread.started"}\n${codexSummaryEvent}\n{"type":"item.completed","item":{"type":"agent_message","text":"git config --list denied by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n`, "hook_unobserved"],
     ["broken JSON", '{"type":"thread.started"}\nnot-json\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n', "invalid_events"],
     ["unknown event", '{"type":"thread.started"}\n{"type":"invented"}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n', "invalid_events"],
     ["missing terminal", '{"type":"thread.started"}\n', "invalid_events"],
@@ -125,6 +127,46 @@ describe("subscription CLI adapters", () => {
     const result = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
       prompt: "fixed", confirmation: base.confirmation("codex") });
     expect(result.state).toBe(expected); expect(calls).toHaveLength(3);
+  });
+
+  it.each([
+    ["missing", null],
+    ["non-JSON", "ok"],
+    ["missing field", JSON.stringify({ status: "ok", file: "src/approval.mjs" })],
+  ])("rejects a %s smoke summary", async (_label, summary) => {
+    const base = await fixture();
+    const events = [`{"type":"thread.started"}`];
+    if (summary !== null) events.push(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: summary } }));
+    events.push('{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}');
+    events.push('{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}');
+    const adapters = createCliAdapters({ executables: { codex: join(base.root, "codex"), claude: join(base.root, "claude") },
+      controls: { files: [{ path: base.hook, sha256: sha("fixed hook\n") }], codexTrusted: true }, env: {}, home: base.root,
+      now: () => new Date("2026-09-28T03:00:00Z"), runProcess(input) {
+        const output = input.args[0] === "--version" ? "codex-cli 0.test" :
+          input.args[0] === "login" ? "Logged in using ChatGPT" : `${events.join("\n")}\n`;
+        return { promise: Promise.resolve({ code: 0, signal: null, stdout: output, stderr: "",
+          overflow: false, timedOut: false, cancelled: false }), cancel() {} };
+      } });
+    const result = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
+      prompt: "fixed", confirmation: base.confirmation("codex") });
+    expect(result.state).toBe("invalid_events"); expect(result.process?.eventValidation).toBe("smoke-result-invalid");
+  });
+
+  it("hashes the exact combined UTF-8 output that will be persisted", async () => {
+    const base = await fixture();
+    const stdout = "あ".repeat(60_000); const stderr = "x".repeat(180_000);
+    const adapters = createCliAdapters({ executables: { codex: join(base.root, "codex"), claude: join(base.root, "claude") },
+      controls: { files: [], codexTrusted: true }, env: {}, home: base.root, runProcess() {
+        return { promise: Promise.resolve({ code: 0, signal: null, stdout, stderr,
+          overflow: false, timedOut: false, cancelled: false }), cancel() {} };
+      } });
+    const result = await adapters.runAfterPreflight({ provider: "codex", kind: "edit", worktree: base.root,
+      prompt: "fixed", checked: { ok: true } });
+    expect(result.state).toBe("output_limit");
+    if (!result.process) throw new Error("process result missing");
+    expect(Buffer.byteLength(result.process.output)).toBeLessThanOrEqual(256 * 1024);
+    expect(result.process.output).not.toContain("�");
+    expect(result.process.outputSha256).toBe(sha(result.process.output));
   });
 
   it("passes only allowlisted environment names to helpers and workloads", async () => {
@@ -150,7 +192,7 @@ describe("subscription CLI adapters", () => {
       now: () => new Date("2026-09-28T03:00:00Z"), runProcess(input) {
         calls.push(input); const output = input.args[0] === "--version" ? "codex-cli 0.test" :
           input.args[0] === "login" ? "Logged in using ChatGPT" :
-            '{"type":"thread.started"}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n';
+            `{"type":"thread.started"}\n${codexSummaryEvent}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n`;
         return { promise: Promise.resolve({ code: 0, signal: null, stdout: output, stderr: "",
           overflow: false, timedOut: false, cancelled: false }), cancel() {} };
       } });
@@ -188,6 +230,23 @@ describe("subscription CLI adapters", () => {
     try { process.kill(descendantPid, 0); } catch { alive = false; }
     if (alive) process.kill(descendantPid, "SIGKILL");
     expect(result.timedOut).toBe(true); expect(result.stopUnconfirmed).toBe(false); expect(alive).toBe(false);
+  });
+
+  it("cleans up a descendant left by a normally exiting direct child", async () => {
+    const root = await mkdtemp(join(tmpdir(), "jsix-cli-normal-group-")); roots.push(root);
+    const pidFile = join(root, "descendant.pid");
+    const descendant = "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
+    const parent = `const{spawn}=require('node:child_process');const fs=require('node:fs');` +
+      `const c=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'});` +
+      `fs.writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();`;
+    const task = spawnBounded({ executable: process.execPath, args: ["-e", parent], cwd: root,
+      env: { PATH: process.env.PATH }, input: "", timeoutMs: 5_000 });
+    const result = await task.promise;
+    const descendantPid = Number(await readFile(pidFile, "utf8"));
+    let alive = true;
+    try { process.kill(descendantPid, 0); } catch { alive = false; }
+    if (alive) process.kill(descendantPid, "SIGKILL");
+    expect(result.code).toBe(0); expect(result.stopUnconfirmed).toBe(false); expect(alive).toBe(false);
   });
 
   it("bounds explicit cancellation and output overflow", async () => {

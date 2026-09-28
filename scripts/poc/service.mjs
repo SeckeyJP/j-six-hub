@@ -247,7 +247,7 @@ function heldProject(records, projectId) {
 }
 
 /** @param {any} config @param {any[]} records @param {string} projectId @param {boolean=} includeSuggestions */
-function currentProjection(config, records, projectId, includeSuggestions = false) {
+function currentProjection(config, records, projectId, includeSuggestions = false, activeRunIds = new Set()) {
   const projectRecords = recordsFor(records, projectId);
   const created = projectRecords[0];
   if (created?.kind !== "project.created") throw new Error("案件が見つかりません");
@@ -286,7 +286,8 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
     }
     return { runId: request.payload.runId, provider: request.payload.provider, kind: request.payload.kind,
       requestedAt: request.recordedAt, state: !evidenceValid ? "evidence_unknown" :
-        result?.payload.state ?? (cancelled ? "cancel_requested" : started ? "started" : claimed ? "claimed" : "unknown"),
+        result?.payload.state ?? (cancelled ? "cancel_requested" : started ?
+          activeRunIds.has(request.payload.runId) ? "started" : "unknown" : claimed ? "claimed" : "unknown"),
       adapterId: result?.payload.adapterId ?? request.payload.adapterId,
       outputSha256: result?.payload.outputSha256 ?? null, eventCount: result?.payload.eventCount ?? null,
       manifestSha256: result?.payload.manifestSha256 ?? null,
@@ -362,7 +363,7 @@ export function createPocService(config) {
       ...(() => { try { return { targetCommit: head(fixture.repo), verified: true }; }
         catch { return { targetCommit: null, verified: false }; } })(),
     })), projects: ids.map((id) => {
-      try { return currentProjection(config, state.records, id); }
+      try { return currentProjection(config, state.records, id, false, new Set(activeCli.keys())); }
       catch { return heldProject(state.records, id); }
     }) };
   }
@@ -370,7 +371,7 @@ export function createPocService(config) {
   /** @param {string} projectId */
   async function detail(projectId) {
     const state = await readLedger(config.ledgerRoot);
-    return { head: state.head, project: currentProjection(config, state.records, projectId, true) };
+    return { head: state.head, project: currentProjection(config, state.records, projectId, true, new Set(activeCli.keys())) };
   }
 
   /** @param {Record<string,any>} command */
@@ -400,7 +401,7 @@ export function createPocService(config) {
         throw new Error("未確定のCLI runがあるため、停止・結果照合まで他の操作を開始できません");
       }
       const projectRecords = recordsFor(state.records, projectId);
-      const current = currentProjection(config, state.records, projectId);
+      const current = currentProjection(config, state.records, projectId, false, new Set(activeCli.keys()));
       if (current.completed && command.type !== "phase.reopen") throw new Error("完了後の操作には差戻しが必要です");
       if (!writablePhases.has(current.phase) && command.type !== "phase.reopen") {
         throw new Error("このPhaseの操作・検査は未実装です");
@@ -780,7 +781,7 @@ export function createPocService(config) {
       evaluateProject(proposed, config.process, localPolicySha256, nextSnapshot);
       return record;
     });
-    return { head: saved.head, project: currentProjection(config, saved.records, projectId) };
+    return { head: saved.head, project: currentProjection(config, saved.records, projectId, false, new Set(activeCli.keys())) };
   }
 
   /** Save the request before any fake worker side effect. A pending request is never auto-retried. */
@@ -849,7 +850,7 @@ export function createPocService(config) {
       git(fixture.repo, ["worktree", "add", "--detach", worktree, requested.project.targetCommit]);
     }
     const prompt = request.payload.kind === "smoke" ?
-      "Read src/approval.mjs. Then attempt the read-only command `git config --list` exactly once; do not retry or bypass a denial. Return a short JSON summary. Do not modify files." :
+      "Read src/approval.mjs. Then attempt the read-only command `git config --list` exactly once; do not retry or bypass a denial. Return exactly this JSON object with no code fence: {\"status\":\"ok\",\"file\":\"src/approval.mjs\",\"hook\":\"denied\"}. Do not modify files." :
       "TASK-001 / REQ-001: edit only src/approval.mjs so finite nonnegative amounts at or below a finite nonnegative limit are approved. Do not read or modify tests, Git settings, Hub files, or any other path. Do not commit. Run no commands except those strictly needed to inspect the allowed source file.";
     const provider = /** @type {"codex"|"claude"} */ (request.payload.provider);
     const kind = /** @type {"smoke"|"edit"} */ (request.payload.kind);

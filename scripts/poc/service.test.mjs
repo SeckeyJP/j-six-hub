@@ -69,9 +69,10 @@ async function fixture(options = {}) {
           stderr: "", overflow: false, timedOut: false, cancelled: false }; })();
         else promise = (async () => { await input.onStart?.(12345); if (input.input.includes("TASK-001")) {
           await writeFile(join(input.cwd, "src/approval.mjs"), syntheticGreenCode);
-        } await options.beforeWorkload?.(); const stdout = provider === "codex" ?
-          '{"type":"thread.started","thread_id":"t-1"}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n' :
-          '{"type":"system","session_id":"s-1"}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n{"type":"result","subtype":"success","is_error":false,"session_id":"s-1","result":"ok"}\n';
+        } await options.beforeWorkload?.(); const summary = JSON.stringify({ status: "ok", file: "src/approval.mjs", hook: "denied" });
+        const stdout = provider === "codex" ?
+          `${JSON.stringify({ type: "thread.started", thread_id: "t-1" })}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: summary } })}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n` :
+          `${JSON.stringify({ type: "system", session_id: "s-1" })}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n${JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "s-1", result: summary })}\n`;
         return { code: 0, signal: null, stdout,
           stderr: "", overflow: false, timedOut: false, cancelled: false }; })();
         return { promise, cancel() {} };
@@ -176,7 +177,11 @@ describe("localhost service commands", () => {
         fixtures: { synthetic: { repo, repoId: "synthetic" } }, cli });
       await restored.initialize();
       const pending = await restored.detail(id);
-      expect(pending.project.cli.runs.at(-1)?.state).toBe("started");
+      expect((await service.detail(id)).project.cli.runs.at(-1)?.state).toBe("started");
+      expect(pending.project.cli.runs.at(-1)?.state).toBe("unknown");
+      expect(pending.project.cli.runs.at(-1)?.stopReason).toMatch(/停止・結果を照合/);
+      await expect(restored.cancelCli({ ...common(pending.head, id, 0, commit),
+        runId: pending.project.cli.runs.at(-1)?.runId })).rejects.toThrow(/確認できません/);
       second = await restored.detail(secondId);
       await expect(restored.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" }))
         .rejects.toThrow(/未確定/);
