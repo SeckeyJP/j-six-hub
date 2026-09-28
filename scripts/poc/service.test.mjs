@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPocService } from "./service.mjs";
 import { localPolicySha256 } from "./policy.mjs";
+import { syntheticGreenCode } from "./fake-runner.mjs";
 
 const processDefinition = JSON.parse(readFileSync(join(process.cwd(), ".cache/process.json"), "utf8"));
 /** @type {string[]} */
@@ -21,7 +22,8 @@ function git(repo, args) {
   }).trim();
 }
 
-async function fixture() {
+/** @param {{cli?:boolean}} [options] */
+async function fixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), "jsix-service-"));
   roots.push(root);
   const repo = join(root, "fixture");
@@ -48,11 +50,35 @@ async function fixture() {
   for (const [path, body] of Object.entries(content)) await writeFile(join(repo, path), body);
   git(repo, ["add", "."]); git(repo, ["commit", "-qm", "baseline"]);
   const commit = git(repo, ["rev-parse", "HEAD"]);
+  let cli;
+  /** @type {any[]} */ const cliCalls = [];
+  if (options.cli) {
+    const codex = join(root, "codex"); const claude = join(root, "claude"); const hook = join(root, "hook.json");
+    await writeFile(codex, "fixed executable\n"); await writeFile(claude, "fixed executable\n"); await writeFile(hook, "fixed hook\n");
+    cli = { executables: { codex, claude }, controls: { files: [{ path: hook, sha256: hash("fixed hook\n") }], codexTrusted: true },
+      env: {}, home: root, runProcess(/** @type {any} */ input) {
+        cliCalls.push(input);
+        const provider = input.executable.endsWith("codex") ? "codex" : "claude";
+        const first = input.args[0];
+        let promise;
+        if (first === "--version") promise = Promise.resolve({ code: 0, signal: null,
+          stdout: `${provider} 0.test`, stderr: "", overflow: false, timedOut: false, cancelled: false });
+        else if (first === "login" || first === "auth") promise = Promise.resolve({ code: 0, signal: null,
+          stdout: provider === "codex" ? "Logged in using ChatGPT" : JSON.stringify({ loggedIn: true,
+            authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }),
+          stderr: "", overflow: false, timedOut: false, cancelled: false });
+        else promise = (async () => { if (input.input.includes("TASK-001")) {
+          await writeFile(join(input.cwd, "src/approval.mjs"), syntheticGreenCode);
+        } return { code: 0, signal: null, stdout: '{"type":"item.completed","command":"git config --list","status":"denied"}\n',
+          stderr: "", overflow: false, timedOut: false, cancelled: false }; })();
+        return { promise, cancel() {} };
+      } };
+  }
   const service = createPocService({ ledgerRoot, process: processDefinition, fixtures: {
     synthetic: { repo, repoId: "synthetic" },
-  } });
+  }, cli });
   await service.initialize();
-  return { repo, ledgerRoot, commit, content, service };
+  return { repo, ledgerRoot, commit, content, service, cliCalls };
 }
 
 /** @param {string} body */
@@ -61,7 +87,65 @@ const hash = (body) => createHash("sha256").update(body).digest("hex");
 const common = (head, projectId, generation, targetCommit) => ({ expectedHead: head, projectId,
   generation, targetCommit, policySha256: localPolicySha256 });
 
+/** @param {any} service @param {string} commit @param {Record<string,string>} content */
+async function advanceToP4(service, commit, content) {
+  let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
+    expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
+  const id = result.project.projectId;
+  const phases = /** @type {Record<string,[string,string][]>} */ ({
+    P0: [["constitution", "constitution.md"]],
+    P1: [["requirement_spec", "requirement.md"], ["business_flow_prototype", "flow.md"]],
+    P2: [["design_spec", "design.md"], ["adr", "adr.md"], ["working_prototype", "prototype.md"], ["properties", "properties.md"]],
+    P3: [["task_list", "tasks.md"], ["task_definition", "task.md"]],
+  });
+  for (const phase of ["P0", "P1", "P2", "P3"]) {
+    for (const [artifactId, path] of phases[phase] ?? []) result = await service.execute({ type: "artifact.submit",
+      ...common(result.head, id, 0, commit), artifactId, path, sha256: hash(content[path] ?? "") });
+    if (phase !== "P0") {
+      result = await service.execute({ type: "review.request", ...common(result.head, id, 0, commit) });
+      result = await service.execute({ type: "decision.record", ...common(result.head, id, 0, commit),
+        outcome: "approved", role: phase === "P1" ? "customer" : phase === "P2" ? "architect" : "gatekeeper",
+        reason: "Synthetic CLI setup", expiresAt: "2099-01-01T00:00:00.000Z" });
+    }
+    result = await service.execute({ type: "phase.transition", ...common(result.head, id, 0, commit) });
+  }
+  return result;
+}
+
 describe("localhost service commands", () => {
+  it("runs one smoke and one live edit with single-use confirmations and real Hub inspection", async () => {
+    const { service, commit, content, cliCalls, ledgerRoot } = await fixture({ cli: true });
+    let result = await advanceToP4(service, commit, content);
+    const id = result.project.projectId;
+    await expect(service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" }))
+      .rejects.toThrow(/確認/);
+    expect(cliCalls).toHaveLength(0);
+    result = await service.confirmSubscription({ ...common(result.head, id, 0, commit), provider: "codex" });
+    const smoke = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(smoke.cliRun.state).toBe("succeeded");
+    await expect(service.runCli({ ...common(smoke.head, id, 0, commit), provider: "codex", kind: "edit" }))
+      .rejects.toThrow(/単回使用/);
+    result = await service.confirmSubscription({ ...common(smoke.head, id, 0, commit), provider: "codex" });
+    const edited = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "edit" });
+    expect(edited.cliRun.state).toBe("succeeded");
+    expect(edited.cliRun.checks).toHaveLength(15);
+    expect(edited.cliRun.checks.filter((item) => item.result !== "passed")
+      .map((item) => ({ id: item.id, result: item.result, output: item.evidence.output }))).toEqual([]);
+    expect(edited.project.run?.mode).toBe("live");
+    expect(edited.project.run?.accepted).toBe(false);
+    expect(edited.project.cli.runs.map((item) => `${item.provider}/${item.kind}/${item.state}`))
+      .toEqual(["codex/smoke/succeeded", "codex/edit/succeeded"]);
+    const logPath = join(ledgerRoot, "private-runs", edited.cliRun.runId, "events.log");
+    const log = readFileSync(logPath);
+    await unlink(logPath);
+    const missingEvidence = await service.detail(id);
+    expect(missingEvidence.project.cli.runs.at(-1)?.state).toBe("evidence_unknown");
+    expect(missingEvidence.project.missing).toContain(`cli-evidence:${edited.cliRun.runId}:unknown`);
+    await writeFile(logPath, log, { mode: 0o600 });
+    await expect(service.runCli({ ...common(edited.head, id, 0, commit), provider: "codex", kind: "edit" }))
+      .rejects.toThrow(/回数上限|確認/);
+  }, 300_000);
+
   it("replays a synthetic project through P0 to P4 with real Git evidence", async () => {
     const { service, commit, content, ledgerRoot, repo } = await fixture();
     let result = await service.execute({ type: "project.create", fixtureId: "synthetic",

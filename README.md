@@ -55,11 +55,16 @@ npm run poc:dev -- --config .local-poc/config.json
 # 既存の .local-poc がある場合の新規一巡
 npm run poc:init -- --name journey-1
 npm run poc:dev -- --config .local-poc/config-journey-1.json
+# subscription CLI adapterも固定する場合（合成fixture限定）
+npm run poc:init -- --name cli-journey --enable-cli
+npm run poc:dev -- --config .local-poc/config-cli-journey.json
 ```
 
 表示された `http://127.0.0.1:<port>` を開きます。案件作成後、P0〜P3 の合成文書を順に提出し、審査要求とローカル模擬判断を記録します。相対pathと SHA-256 は対象 Git commit から画面に候補が表示されます。P4 は固定合成 TDD runを実行し、候補差分、TDD commit、15件の検査結果と実出力を確認してから候補を受け入れます。受入れ時には検査証跡本文を `docs/check-evidence.json`、その参照と要約を `docs/evidence-pack.json` に保存します。承認済み候補と異なる成果物の再提出ではP4を通過できません。P5 は要求入口から承認方針へ結線するシナリオを実行し、入口モジュール・結合テスト・実行出力・品質指標のpath/hashを固定して品質記録を提出します。これらが現在版から欠落・変更した場合はP6の納品・完了を保留します。P6 は逆生成文書を作成・提出して完了を記録します。各Phaseの不足理由と中央監視の履歴を確認してください。模擬判断は**単一利用者のローカル模擬**で、正式な顧客承認ではありません。
 
-非公開台帳と合成repoは `.local-poc/` 内で分離され、サーバーは127.0.0.1だけにbindします。対象repoは設定済みのfixture IDから選び、ブラウザから任意のディレクトリを指定できません。G1のSAST・依存検査は固定合成題材に限る限定チェックで、汎用スキャナ相当ではありません。G3 は方針に従う明示省略であり PASS ではなく最大 L3、実 CLI・企業の受入試験・顧客検収は未検証です。既存のリプレイ画面とデータはこのローカル画面には接続しません。
+`--enable-cli` は、このMacの固定されたCodex／Claude Code実行ファイル、マシン共通Hookと信頼設定のhashをローカル設定へ記録します。P4で各workloadの直前に、account画面でsubscription利用枠があり追加クレジット／extra usageを使わないことを確認してから、provider別の単回確認を記録します。不明ならCLIを起動しません。初回上限は各providerにつき読取smoke 1回と小さな合成編集1回で、失敗しても同じ案件世代で再試行しません。読取smokeは副作用のない `git config --list` が共通Hookで拒否されることを実sessionで確認します。編集時はhold-outをsparse checkoutから外し、候補生成後に復元してHubが検査します。同じOSユーザーからの強い秘匿やsubscription請求の技術的保証を意味しません。
+
+非公開台帳と合成repoは `.local-poc/` 内で分離され、サーバーは127.0.0.1だけにbindします。対象repoは設定済みのfixture IDから選び、ブラウザから任意のディレクトリを指定できません。CLIのbounded eventログは台帳外の `ledger*/private-runs/<run-id>/events.log` にmode 0600で保存し、7日後または案件削除時に運用者が削除します。削除後や欠落時はhashだけで内容を再検証できないため、証跡状態を `unknown` として候補を再利用しません。自動削除処理はこのPoCでは未実装です。G1のSAST・依存検査は固定合成題材に限る限定チェックで、汎用スキャナ相当ではありません。G3 は方針に従う明示省略であり PASS ではなく最大 L3、企業の受入試験・顧客検収は未検証です。既存のリプレイ画面とデータはこのローカル画面には接続しません。
 
 Phase・ゲートの定義は、ビルド時に J-SIX のプロセス定義（固定commit `1101258e5aec249273fcc5d546db0341d456e1be`）を取得し、`process.lock.json` のハッシュと照合してから使います。技術スタックは [ADR-0002](docs/adr/0002-web-app-stack.md)、台帳形式は [ADR-0009](docs/adr/0009-local-git-ledger.md)、要求と設計は [`docs/specs/`](docs/specs/) にあります。
 

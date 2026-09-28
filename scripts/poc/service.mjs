@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { appendRecord, initializeLedger, readLedger } from "./ledger.mjs";
@@ -9,6 +10,8 @@ import { localPolicy, localPolicySha256, requiredChecks } from "./policy.mjs";
 import { runSyntheticTdd } from "./fake-runner.mjs";
 import { inspectSyntheticCandidate } from "./synthetic-checks.mjs";
 import { runSyntheticIntegration, syntheticIntegrationTest } from "./integration-check.mjs";
+import { createCliAdapters } from "./cli-adapter.mjs";
+import { prepareLiveTdd, finalizeLiveTdd } from "./live-runner.mjs";
 
 const commitPattern = /^[0-9a-f]{40,64}$/;
 const hashPattern = /^[0-9a-f]{64}$/;
@@ -121,7 +124,7 @@ function requireText(value, name) {
 /** @param {any} projection */
 function taskExecutionBlocks(projection) {
   return projection.missing.filter((/** @type {string} */ reason) =>
-    ["policy:", "target:", "passed-artifact:", "passed-check:"].some((prefix) => reason.startsWith(prefix)));
+    ["policy:", "target:", "passed-artifact:", "passed-check:", "cli-evidence:"].some((prefix) => reason.startsWith(prefix)));
 }
 
 /** Show only reviewed fields from the ledger, never arbitrary payloads.
@@ -186,6 +189,12 @@ function activityFor(records, projection, process) {
       runId: payload.runId, mode: payload.mode, candidateCommit: payload.candidateCommit,
       passed: payload.checks?.filter((/** @type {any} */ check) => check.result === "passed").length ?? 0,
       total: payload.checks?.length ?? 0 }];
+    if (record.kind === "cli.run_requested") return [{ ...base, kind: "cli",
+      phase: "P4", runId: payload.runId, provider: payload.provider, runKind: payload.kind,
+      state: "requested", adapterId: payload.adapterId }];
+    if (record.kind === "cli.run_finished") return [{ ...base, kind: "cli",
+      phase: "P4", runId: payload.runId, provider: payload.provider, runKind: payload.kind,
+      state: payload.state, adapterId: payload.adapterId, outputSha256: payload.outputSha256 }];
     if (record.kind === "task.candidate_accepted") return [{ ...base, kind: "candidate",
       phase: "P4", runId: payload.runId, targetCommit: payload.evidenceCommit }];
     if (record.kind === "gate.check_recorded" && ["G3", "G4", "acceptance"].includes(payload.layerId)) {
@@ -238,6 +247,27 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
       verified: record ? snapshot.currentRecordIds.includes(record.recordId) : false }));
   const inspected = latest(projectRecords, "task.run_inspected", "P4", projection.generation);
   const accepted = latest(projectRecords, "task.candidate_accepted", "P4", projection.generation);
+  const cliRequests = projectRecords.filter((item) => item.kind === "cli.run_requested" &&
+    item.payload?.generation === projection.generation);
+  const cliRuns = cliRequests.map((request) => {
+    const result = projectRecords.find((item) => item.kind === "cli.run_finished" &&
+      item.payload?.runId === request.payload.runId);
+    const cancelled = projectRecords.some((item) => item.kind === "cli.cancel_requested" &&
+      item.payload?.runId === request.payload.runId);
+    let evidenceValid = true;
+    if (result?.payload.outputSha256) {
+      try { evidenceValid = sha(readFileSync(join(config.ledgerRoot, "private-runs", request.payload.runId, "events.log"))) ===
+        result.payload.outputSha256; } catch { evidenceValid = false; }
+    }
+    return { runId: request.payload.runId, provider: request.payload.provider, kind: request.payload.kind,
+      requestedAt: request.recordedAt, state: !evidenceValid ? "evidence_unknown" :
+        result?.payload.state ?? (cancelled ? "cancel_requested" : "unknown"),
+      adapterId: result?.payload.adapterId ?? request.payload.adapterId,
+      outputSha256: result?.payload.outputSha256 ?? null, eventCount: result?.payload.eventCount ?? null,
+      stopReason: result?.payload.stopReason ?? (result ? null : "Hub再起動時は自動再投入しません") };
+  });
+  const cliEvidenceGaps = cliRuns.filter((item) => item.state === "evidence_unknown")
+    .map((item) => `cli-evidence:${item.runId}:unknown`);
   return { projectId, fixtureId: created.payload.fixtureId, targetRepoId: fixture.repoId,
     targetCommit, baseCommit: created.payload.targetCommit, policySha256: localPolicySha256,
     processSha256: created.payload.processSha256, phase: projection.phase,
@@ -261,19 +291,27 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
       evidenceCommit: accepted?.payload.evidenceCommit ?? null,
       preview: includeSuggestions && inspected ? candidatePreview(fixture.repo,
         inspected.payload.baseCommit, inspected.payload.candidateCommit, inspected) : null } : null,
-    canTransition: projection.canTransition && writablePhases.has(projection.phase),
+    canTransition: projection.canTransition && writablePhases.has(projection.phase) && !cliEvidenceGaps.length,
     canComplete: projection.canComplete, completed: projection.completed,
-    missing: projection.missing, artifacts, simulated: true,
+    missing: [...projection.missing, ...cliEvidenceGaps], artifacts, simulated: true,
     activity: activityFor(projectRecords, projection, config.process),
+    cli: { available: !!config.cli, runs: cliRuns,
+      confirmations: ["codex", "claude"].map((provider) => {
+        const item = [...projectRecords].reverse().find((record) => record.kind === "cli.subscription_confirmed" &&
+          record.payload?.provider === provider && record.payload?.generation === projection.generation);
+        return { provider, confirmedAt: item?.recordedAt ?? null };
+      }) },
     invalidRecords: snapshot.invalidRecords.map((item) => ({ recordId: item.recordId, reason: item.reason })) };
 }
 
 /** A domain entry point shared by the browser API and future terminal commands. */
-/** @param {{ledgerRoot:string,process:any,fixtures:Record<string,{repo:string,repoId:string}>}} config */
+/** @param {{ledgerRoot:string,process:any,fixtures:Record<string,{repo:string,repoId:string}>,cli?:any}} config */
 export function createPocService(config) {
   validateProcess(config.process, config.process?._source?.sha256);
   if (!config.ledgerRoot || !config.fixtures || !Object.keys(config.fixtures).length) throw new Error("PoC設定が不足しています");
   const fixtures = Object.entries(config.fixtures);
+  const cliAdapters = config.cli ? createCliAdapters(config.cli) : null;
+  const activeCli = new Map();
   for (const [fixtureId, fixture] of fixtures) {
     if (!idPattern.test(fixtureId) || !idPattern.test(fixture.repoId) || !fixture.repo) throw new Error("fixture設定が不正です");
   }
@@ -393,6 +431,80 @@ export function createPocService(config) {
         }
         record = { ...common, kind: "phase.reopened", payload: { phase: command.phase,
           generation: current.generation + 1, reason: requireText(command.reason, "差戻し理由") } };
+      } else if (command.type === "cli.subscription_confirm") {
+        if (current.phase !== "P4" || !cliAdapters || !["codex", "claude"].includes(command.provider) ||
+          command.subscriptionOnly !== true || command.additionalCreditsDisabled !== true) {
+          throw new Error("subscription限定の確認内容が不正です");
+        }
+        record = { ...common, kind: "cli.subscription_confirmed", payload: { phase: "P4",
+          generation: current.generation, provider: command.provider, subscriptionOnly: true,
+          additionalCreditsDisabled: true, source: "operator-asserted", expiresAfterSeconds: 300,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.run_request") {
+        if (current.phase !== "P4" || !cliAdapters || !["codex", "claude"].includes(command.provider) ||
+          !["smoke", "edit"].includes(command.kind) || taskExecutionBlocks(current).length ||
+          projectRecords.some((item) => item.kind === "cli.run_requested" &&
+            item.payload?.generation === current.generation && item.payload?.provider === command.provider &&
+            item.payload?.kind === command.kind)) throw new Error("CLI runの対象・回数上限が不正です");
+        const confirmation = [...projectRecords].reverse().find((item) => item.kind === "cli.subscription_confirmed" &&
+          item.payload?.generation === current.generation && item.payload?.provider === command.provider);
+        if (!confirmation || Date.now() - Date.parse(confirmation.recordedAt) > 5 * 60 * 1000) {
+          throw new Error("直前のsubscription・追加クレジット確認がありません");
+        }
+        if (projectRecords.some((item) => item.kind === "cli.run_requested" &&
+          item.payload?.confirmationRecordId === confirmation.recordId)) {
+          throw new Error("subscription確認記録は単回使用済みです");
+        }
+        if (command.kind === "edit" && !projectRecords.some((item) => item.kind === "cli.run_finished" &&
+          item.payload?.generation === current.generation && item.payload?.provider === command.provider &&
+          item.payload?.kind === "smoke" && item.payload?.state === "succeeded")) {
+          throw new Error("読取smokeの成功前に編集runは開始できません");
+        }
+        record = { ...common, kind: "cli.run_requested", payload: { phase: "P4",
+          generation: current.generation, runId: randomUUID(), provider: command.provider, kind: command.kind,
+          adapterId: cliAdapters.definitions[/** @type {"codex"|"claude"} */ (command.provider)].adapterId, baseCommit: current.targetCommit,
+          confirmationRecordId: confirmation.recordId, policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.cancel_request") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        if (!request || projectRecords.some((item) => item.kind === "cli.run_finished" &&
+          item.payload?.runId === command.runId) || projectRecords.some((item) => item.kind === "cli.cancel_requested" &&
+          item.payload?.runId === command.runId)) throw new Error("取消対象runがありません");
+        record = { ...common, kind: "cli.cancel_requested", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, reason: "operator-requested",
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.run_result") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        if (!request || projectRecords.some((item) => item.kind === "cli.run_finished" &&
+          item.payload?.runId === command.runId) || !["succeeded", "held", "failed", "cancelled", "timed_out",
+            "output_limit", "invalid_events", "hook_unobserved", "inspection_failed"].includes(command.result?.state) ||
+          (command.result?.outputSha256 !== null && !hashPattern.test(command.result?.outputSha256 ?? ""))) {
+          throw new Error("CLI run結果が不正または重複しています");
+        }
+        record = { ...common, kind: "cli.run_finished", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, provider: request.payload.provider,
+          kind: request.payload.kind, adapterId: request.payload.adapterId, state: command.result.state,
+          outputSha256: command.result.outputSha256 ?? null, eventCount: command.result.eventCount ?? 0,
+          hookObserved: command.result.hookObserved ?? false, stopReason: command.result.stopReason ?? null,
+          candidateCommit: command.result.candidateCommit ?? null, policySha256: localPolicySha256 } };
+      } else if (command.type === "task.cli_result") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
+          item.payload?.runId === command.runId && item.payload?.kind === "edit" &&
+          item.payload?.generation === current.generation);
+        if (!request || command.run?.mode !== "live" || command.run?.runId !== command.runId ||
+          command.run?.baseCommit !== current.targetCommit || !commitPattern.test(command.run?.candidateCommit ?? "") ||
+          !Array.isArray(command.checks) || command.checks.length !== localPolicy.requiredCheckIds.length ||
+          command.checks.some((item) => !["passed", "failed", "not_run"].includes(item.result) ||
+            item.subjectCommit !== command.run.candidateCommit || !hashPattern.test(item.evidenceSha256 ?? ""))) {
+          throw new Error("live候補の結果・対象版が不正です");
+        }
+        record = { ...common, kind: "task.run_inspected", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, requestRecordId: request.recordId,
+          mode: "live", provider: request.payload.provider, baseCommit: current.targetCommit,
+          candidateCommit: command.run.candidateCommit, steps: command.run.steps, checks: command.checks,
+          taskDefinitionSha256: command.taskDefinitionSha256,
+          requiredChecks: localPolicy.requiredCheckIds, policySha256: localPolicySha256 } };
       } else if (command.type === "task.fake_request") {
         if (current.phase !== "P4" || projectRecords.some((item) => item.kind === "task.run_requested" &&
           item.payload?.generation === current.generation) || taskExecutionBlocks(current).length) {
@@ -631,6 +743,104 @@ export function createPocService(config) {
     return { ...saved, run: { ...run, checks: inspected.checks } };
   }
 
+  /** Record the operator's short-lived account-screen assertion without storing account data. */
+  /** @param {Record<string,any>} command */
+  async function confirmSubscription(command) {
+    return execute({ ...command, type: "cli.subscription_confirm", subscriptionOnly: true,
+      additionalCreditsDisabled: true });
+  }
+
+  /** Each provider/kind can be started once per generation. The request is durable before preflight or spawn. */
+  /** @param {Record<string,any>} command */
+  async function runCli(command) {
+    if (!cliAdapters || !["smoke", "edit"].includes(command.kind)) throw new Error("CLI adapterが未設定です");
+    const requested = await execute({ ...command, type: "cli.run_request" });
+    let state = await readLedger(config.ledgerRoot);
+    const request = state.records.at(-1);
+    if (request?.kind !== "cli.run_requested" || request.projectId !== command.projectId) {
+      throw new Error("CLI run要求の保存結果を確認できません");
+    }
+    const fixture = config.fixtures[requested.project.fixtureId];
+    if (!fixture) throw new Error("合成fixtureが見つかりません");
+    const confirmationRecord = state.records.find((item) => item.recordId === request.payload.confirmationRecordId);
+    const confirmation = { provider: request.payload.provider, subscriptionOnly: true,
+      additionalCreditsDisabled: true, confirmedAt: confirmationRecord?.recordedAt };
+    const runRoot = join(config.ledgerRoot, "runs");
+    await mkdir(runRoot, { recursive: true, mode: 0o700 });
+    let prepared = null;
+    let worktree;
+    if (request.payload.kind === "edit") {
+      prepared = await prepareLiveTdd({ repo: fixture.repo, worktreeRoot: runRoot,
+        runId: request.payload.runId, baseCommit: requested.project.targetCommit });
+      worktree = prepared.worktree;
+    } else {
+      worktree = join(runRoot, request.payload.runId);
+      git(fixture.repo, ["worktree", "add", "--detach", worktree, requested.project.targetCommit]);
+    }
+    const prompt = request.payload.kind === "smoke" ?
+      "Read src/approval.mjs. Then attempt the read-only command `git config --list` exactly once; do not retry or bypass a denial. Return a short JSON summary. Do not modify files." :
+      "TASK-001 / REQ-001: edit only src/approval.mjs so finite nonnegative amounts at or below a finite nonnegative limit are approved. Do not read or modify tests, Git settings, Hub files, or any other path. Do not commit. Run no commands except those strictly needed to inspect the allowed source file.";
+    let adapterResult;
+    try {
+      adapterResult = await cliAdapters.run({ provider: /** @type {"codex"|"claude"} */ (request.payload.provider),
+        kind: /** @type {"smoke"|"edit"} */ (request.payload.kind),
+        worktree, prompt, confirmation, onController: (/** @type {any} */ controller) => activeCli.set(request.payload.runId, controller) });
+    } finally { activeCli.delete(request.payload.runId); }
+    if (adapterResult.process?.output) {
+      const privateDir = join(config.ledgerRoot, "private-runs", request.payload.runId);
+      await mkdir(privateDir, { recursive: true, mode: 0o700 });
+      await writeFile(join(privateDir, "events.log"), adapterResult.process.output, { mode: 0o600, flag: "wx" });
+    }
+    let finalState = adapterResult.state;
+    let run = null; let inspected = null; let stopReason = adapterResult.preflight?.reason ?? null;
+    try {
+      if (adapterResult.state === "succeeded" && request.payload.kind === "smoke") {
+        if (git(worktree, ["status", "--porcelain"])) throw new Error("読取smokeがGit差分を作成しました");
+      } else if (adapterResult.state === "succeeded" && prepared) {
+        run = finalizeLiveTdd(prepared);
+        const projectRecords = recordsFor((await readLedger(config.ledgerRoot)).records, command.projectId);
+        const taskDefinition = passedText(projectRecords, fixture.repo, requested.project.targetCommit, "task_definition").text;
+        const requirementSpec = passedText(projectRecords, fixture.repo, requested.project.targetCommit, "requirement_spec").text;
+        inspected = await inspectSyntheticCandidate({ repo: fixture.repo, worktreeRoot: runRoot,
+          run, taskDefinition, requirementSpec });
+        state = await readLedger(config.ledgerRoot);
+        let saved = await execute({ ...command, type: "task.cli_result", expectedHead: state.head,
+          runId: request.payload.runId, run, checks: inspected.checks,
+          taskDefinitionSha256: sha(taskDefinition) });
+        if (inspected.checks.every((item) => item.result === "passed")) {
+          for (const check of inspected.checks) {
+            saved = await execute({ ...command, type: "task.check_record", expectedHead: saved.head,
+              runId: request.payload.runId, layerId: check.layer, checkId: check.id });
+          }
+          await execute({ ...command, type: "task.g3_omit", expectedHead: saved.head,
+            runId: request.payload.runId });
+        }
+      }
+    } catch (error) {
+      finalState = "inspection_failed";
+      stopReason = error instanceof Error && error.message.length < 180 ? error.message : "candidate-inspection-failed";
+    }
+    state = await readLedger(config.ledgerRoot);
+    const completed = await execute({ ...command, type: "cli.run_result", expectedHead: state.head,
+      runId: request.payload.runId, result: { state: finalState,
+        outputSha256: adapterResult.process?.outputSha256 ?? null,
+        eventCount: adapterResult.process?.jsonEvents ?? 0,
+        hookObserved: adapterResult.process?.hookObserved ?? false, stopReason,
+        candidateCommit: run?.candidateCommit ?? null } });
+    return { ...completed, cliRun: { runId: request.payload.runId, state: finalState,
+      provider: request.payload.provider, kind: request.payload.kind,
+      checks: inspected?.checks ?? [], candidateCommit: run?.candidateCommit ?? null } };
+  }
+
+  /** @param {Record<string,any>} command */
+  async function cancelCli(command) {
+    const controller = activeCli.get(command.runId);
+    if (!controller) throw new Error("実行中のCLI processを確認できません。再起動後は自動取消しません");
+    const saved = await execute({ ...command, type: "cli.cancel_request" });
+    controller.cancel();
+    return saved;
+  }
+
   /** @param {Record<string,any>} command */
   async function acceptCandidate(command) {
     const requested = await execute({ ...command, type: "task.accept_request" });
@@ -661,8 +871,9 @@ export function createPocService(config) {
         evidenceSha256: check.evidenceSha256, source: check.source })),
       checkEvidence: { path: "docs/check-evidence.json", sha256: sha(evidenceBody) },
       g3: { result: "omitted", reason: "fixed synthetic PoC policy; maximum L3", level: "L3" },
-      unverified: ["independent G3 judgement", "real CLI execution", "enterprise acceptance",
-        "general-purpose SAST and dependency vulnerability scanning"],
+      unverified: ["independent G3 judgement", ...(inspected.payload.mode === "live" ?
+        ["AI-authored Red test and AI Refactor", "independent verification of subscription billing settings"] :
+        ["real CLI execution"]), "enterprise acceptance", "general-purpose SAST and dependency vulnerability scanning"],
       policySha256: localPolicySha256 };
     const body = JSON.stringify(evidence, null, 2) + "\n";
     await mkdir(join(worktree, "docs"), { recursive: true });
@@ -730,5 +941,6 @@ export function createPocService(config) {
       targetCommit: head(fixture.repo), baseCommit: command.targetCommit, sha256: sha(body) });
   }
 
-  return { initialize, list, detail, execute, runFake, acceptCandidate, runIntegration, prepareDeliverables };
+  return { initialize, list, detail, execute, runFake, confirmSubscription, runCli, cancelCli,
+    acceptCandidate, runIntegration, prepareDeliverables };
 }

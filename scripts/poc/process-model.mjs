@@ -4,6 +4,7 @@ const supportedKinds = new Set([
   "project.created", "artifact.submitted", "phase.review_requested", "gate.check_recorded",
   "gate.local_decision", "phase.transitioned", "phase.reopened",
   "task.run_requested", "task.run_inspected", "task.accept_requested", "task.candidate_accepted",
+  "cli.subscription_confirmed", "cli.run_requested", "cli.cancel_requested", "cli.run_finished",
   "quality.check_requested", "deliverables.requested", "deliverables.generated", "phase.completed",
 ]);
 
@@ -142,6 +143,8 @@ function projectPosition(records, model, snapshot) {
         typeof record.payload?.runId !== "string" || !record.payload.runId)) {
       throw new Error("合成runのPhase・世代・IDが不正です");
     }
+    if (record.kind.startsWith("cli.") && (phase !== "P4" || record.payload?.phase !== "P4" ||
+      record.payload?.generation !== generation)) throw new Error("CLI recordのPhase・世代が不正です");
     if (record.kind === "quality.check_requested" &&
       (phase !== "P5" || record.payload?.phase !== phase || record.payload?.generation !== generation)) {
       throw new Error("品質検査要求のPhase・世代が不正です");

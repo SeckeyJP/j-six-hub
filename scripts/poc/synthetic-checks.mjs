@@ -54,6 +54,11 @@ function assertStepHistory(worktree, steps) {
     steps[2].test?.status !== "passed" || steps[3].test?.status !== "passed") {
     throw new Error("Red/Green/Refactorの実結果が不足しています");
   }
+  if (steps[3].outcome === "no_change" && (steps[3].owner !== "hub" ||
+    steps[3].sourceCommit !== steps[2].commit || steps[3].criteria !== "fixed-synthetic-g1-and-tests" ||
+    git(worktree, ["rev-parse", `${steps[2].commit}^{tree}`]) !== git(worktree, ["rev-parse", `${steps[3].commit}^{tree}`]))) {
+    throw new Error("no-change Refactor checkpointが不正です");
+  }
 }
 
 /** Independent deterministic checks for the fixed synthetic fixture only.
@@ -67,9 +72,12 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
     git(worktree, ["rev-parse", "HEAD"]) !== candidate.candidateCommit) throw new Error("候補HEAD・基準commitが一致しません");
   assertStepHistory(worktree, steps);
   const originalBase = git(worktree, ["rev-parse", `${steps[0].commit}^`]);
-  if (candidate.mode === "fake") {
+  if (["fake", "live"].includes(candidate.mode)) {
     if (steps[3].commit !== candidate.candidateCommit || originalBase !== candidate.baseCommit) {
       throw new Error("候補とTDD履歴の対象commitが一致しません");
+    }
+    if (candidate.mode === "live" && (steps[3].outcome !== "no_change" || steps[2].owner !== "cli")) {
+      throw new Error("live TDD履歴の担当・Refactor判定が不正です");
     }
   } else if (candidate.mode === "fake-revalidation") {
     if (candidate.candidateCommit !== candidate.baseCommit ||

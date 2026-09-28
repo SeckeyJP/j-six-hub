@@ -101,9 +101,14 @@ export async function startPocServer({ service, port = 0 }) {
       const body = req.method === "POST" ? await jsonBody(req) : null;
       const command = body ? mappedCommand(pathname, body) : null;
       if (command) { send(res, 200, await service.execute(command)); return; }
-      const action = /^\/api\/projects\/([0-9a-f-]{36})\/(fake-runs|accept-candidates|integration|deliverables)$/.exec(pathname);
+      const action = /^\/api\/projects\/([0-9a-f-]{36})\/(fake-runs|accept-candidates|integration|deliverables|cli-confirm|cli-smoke|cli-edit|cli-cancel)$/.exec(pathname);
       if (body && action) {
         const input = { ...body, projectId: action[1] };
+        if (action[2] === "cli-confirm") { send(res, 200, await service.confirmSubscription(input)); return; }
+        if (action[2] === "cli-smoke" || action[2] === "cli-edit") {
+          send(res, 200, await service.runCli({ ...input, kind: action[2] === "cli-smoke" ? "smoke" : "edit" })); return;
+        }
+        if (action[2] === "cli-cancel") { send(res, 200, await service.cancelCli(input)); return; }
         const operation = action[2] === "fake-runs" ? service.runFake :
           action[2] === "accept-candidates" ? service.acceptCandidate :
             action[2] === "integration" ? service.runIntegration : service.prepareDeliverables;
