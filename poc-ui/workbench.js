@@ -166,6 +166,7 @@ function explainMissing(reason, project) {
     return `検査が未実装: ${reason.slice(6, -14)}`;
   }
   if (reason.startsWith("passed-artifact:")) return `過去Phaseの成果物が現在版で変わりました (${reason.slice(16)})`;
+  if (reason.startsWith("passed-check:")) return `通過済み検査の証跡が現在版で変わりました (${reason.slice(13)})`;
   if (reason === "task:candidate-not-accepted") return "検査済み候補の受入れが必要です";
   if (reason === "task:accepted-artifacts-mismatch") return "提出物が受入れ済み候補のmanifestと一致しません";
   if (reason === "target:verification-unknown") return "対象Git・工程照合が不明です。操作を保留しています。";

@@ -50,6 +50,18 @@ function verifyEvidenceReference(repo, targetCommit, content) {
   verifyArtifact(repo, { targetCommit, path: pack.checkEvidence.path, sha256: pack.checkEvidence.sha256 });
 }
 
+/** @param {string} repo @param {string} targetCommit @param {any[]} manifest */
+function verifyEvidenceManifest(repo, targetCommit, manifest) {
+  if (!Array.isArray(manifest) || manifest.length !== 3 ||
+    new Set(manifest.map((item) => item?.evidenceId)).size !== manifest.length) {
+    throw new Error("品質検査の証跡manifestが不正です");
+  }
+  for (const item of manifest) {
+    if (typeof item?.evidenceId !== "string") throw new Error("品質検査の証跡IDが不正です");
+    verifyArtifact(repo, { targetCommit, path: item.path, sha256: item.sha256 });
+  }
+}
+
 /** @param {string} repo @param {any[]} records @param {string} commit @param {string} repoId */
 export function verifiedSnapshot(repo, records, commit, repoId) {
   if (typeof repoId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(repoId)) {
@@ -67,6 +79,10 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
   const validTransitionRecordIds = [];
   /** @type {string[]} */
   const validCompletionRecordIds = [];
+  /** @type {string[]} */
+  const verifiedCheckRecordIds = [];
+  /** @type {string[]} */
+  const currentCheckRecordIds = [];
   /** @type {Map<string,string>} */
   const verifiedContent = new Map();
   let baseCommitVerified = false;
@@ -124,6 +140,20 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
       invalidRecords.push({ recordId: definition.recordId, reason: "task_listとtask_definitionのTASK IDが一致しません" });
     }
   }
+  for (const record of records) {
+    if (record.kind !== "gate.check_recorded" || record.payload?.phase !== "P5" ||
+      record.payload?.checkId !== "integration_tests") continue;
+    try {
+      verifyEvidenceManifest(repo, record.payload.subjectCommit, record.payload.evidenceManifest);
+      verifiedCheckRecordIds.push(record.recordId);
+      try {
+        verifyEvidenceManifest(repo, commit, record.payload.evidenceManifest);
+        currentCheckRecordIds.push(record.recordId);
+      } catch { /* The historical check is valid but its current evidence changed. */ }
+    } catch (error) {
+      invalidRecords.push({ recordId: record.recordId, reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
   let previousTransitionCommit = baseline;
   for (const [index, record] of records.entries()) {
     if (record.kind !== "phase.transitioned") continue;
@@ -157,5 +187,6 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
     } catch { /* A missing or unrelated completion is not replay evidence. */ }
   }
   return { repoId, commit, baseCommitVerified, verifiedRecordIds, currentRecordIds,
-    verifiedAtCommits, validTransitionRecordIds, validCompletionRecordIds, invalidRecords };
+    verifiedAtCommits, verifiedCheckRecordIds, currentCheckRecordIds,
+    validTransitionRecordIds, validCompletionRecordIds, invalidRecords };
 }

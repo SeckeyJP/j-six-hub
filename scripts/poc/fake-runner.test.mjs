@@ -58,6 +58,11 @@ describe("synthetic TDD worktree", () => {
     expect(inspection.checks.every((check) => check.evidence.output.length <= 16 * 1024 &&
       check.evidence.definitionVersion === "hub-fixed-synthetic-checks-v3")).toBe(true);
     expect(inspection.candidateCommit).toBe(refactor);
+    const forbiddenTest = await inspectSyntheticCandidate({ repo, worktreeRoot: join(root, "runs"), run: result,
+      taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: values within limit\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: tests/**\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
+      requirementSpec: "REQ-001: bounded approval\nAC-001: values within limit\nPROP-001: bounded\n" });
+    expect(forbiddenTest.checks.find((check) => check.id === "scope")?.result).toBe("failed");
+    expect(forbiddenTest.checks.filter((check) => check.layer === "G2").every((check) => check.result === "not_run")).toBe(true);
     await writeFile(join(worktree, "tests/holdout.test.mjs"), "// weakened\n");
     git(worktree, ["add", "tests/holdout.test.mjs"]); git(worktree, ["commit", "-qm", "tamper holdout"]);
     await expect(inspectSyntheticCandidate({ repo, worktreeRoot: join(root, "runs"), run: result,

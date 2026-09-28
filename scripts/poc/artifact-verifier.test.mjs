@@ -38,7 +38,8 @@ describe("Git artifact verifier", () => {
     expect(verifyArtifact(root, submitted.payload)).toBe(true);
     expect(verifiedSnapshot(root, [submitted], commit, "approval-workflow")).toEqual({ repoId: "approval-workflow", commit,
       baseCommitVerified: false, verifiedRecordIds: ["constitution-v1"], currentRecordIds: ["constitution-v1"],
-      verifiedAtCommits: {}, validTransitionRecordIds: [], validCompletionRecordIds: [], invalidRecords: [] });
+      verifiedAtCommits: {}, verifiedCheckRecordIds: [], currentCheckRecordIds: [],
+      validTransitionRecordIds: [], validCompletionRecordIds: [], invalidRecords: [] });
   });
 
   it("rejects wrong hashes, path traversal, and symlink entries", async () => {

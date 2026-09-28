@@ -119,10 +119,12 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
     `external-dependency-scan=${depsOk}; contentSha256=${sha(code + unit + holdout)}`, "hub dependency rule");
   const allow = field(taskDefinition, "allow").split(",").map((item) => item.trim());
   const deny = field(taskDefinition, "deny").split(",").map((item) => item.trim());
-  const changed = git(worktree, ["diff", "--name-only", steps[1].commit, steps[3].commit]).split("\n").filter(Boolean);
+  const changed = git(worktree, ["diff", "--name-only", candidate.baseCommit, steps[3].commit]).split("\n")
+    .filter(Boolean).filter((path) => !localPolicy.hubOwnedTaskPaths.includes(path));
   const scopeOk = changed.length > 0 && changed.every((path) =>
     allow.some((pattern) => matches(path, pattern)) && !deny.some((pattern) => matches(path, pattern)));
-  record("G1", "scope", scopeOk ? "passed" : "failed", changed.join("\n"), "git diff --name-only <red> <refactor>", "git");
+  record("G1", "scope", scopeOk ? "passed" : "failed", changed.join("\n"),
+    "git diff --name-only <baseline> <refactor>; exclude policy hubOwnedTaskPaths", "git");
   const baselineCode = git(worktree, ["show", `${candidate.baseCommit}:src/approval.mjs`]);
   const interfaceOk = /export function approve\(amount, limit\)/.test(code) &&
     /export function approve\(amount, limit\)/.test(baselineCode);

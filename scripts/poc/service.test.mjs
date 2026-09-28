@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPocService } from "./service.mjs";
@@ -363,6 +363,21 @@ describe("localhost service commands", () => {
     expect(current.project.canTransition).toBe(true);
     current = await service.execute({ type: "phase.transition", ...common(current.head, id, 0, current.project.targetCommit) });
     expect(current.project.phase).toBe("P6");
+    const integrationTest = readFileSync(join(repo, "tests/integration.test.mjs"), "utf8");
+    const integrationOutput = readFileSync(join(repo, "docs/integration-result.txt"), "utf8");
+    await unlink(join(repo, "tests/integration.test.mjs"));
+    await unlink(join(repo, "docs/integration-result.txt"));
+    git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "remove quality evidence"]);
+    let changedEvidence = await service.detail(id);
+    expect(changedEvidence.project.missing.some((reason) => reason.startsWith("passed-check:"))).toBe(true);
+    await expect(service.prepareDeliverables(common(changedEvidence.head, id, 0, changedEvidence.project.targetCommit)))
+      .rejects.toThrow(/証跡/);
+    await writeFile(join(repo, "tests/integration.test.mjs"), integrationTest);
+    await writeFile(join(repo, "docs/integration-result.txt"), integrationOutput);
+    git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "restore quality evidence"]);
+    changedEvidence = await service.detail(id);
+    expect(changedEvidence.project.missing.some((reason) => reason.startsWith("passed-check:"))).toBe(false);
+    current = /** @type {{head:string,project:any}} */ (changedEvidence);
     const delivery = await service.prepareDeliverables(common(current.head, id, 0, current.project.targetCommit));
     current = await service.execute({ type: "artifact.submit", ...common(delivery.head, id, 0, delivery.project.targetCommit),
       artifactId: "reverse_generated_docs", path: "docs/reverse-generated.md",

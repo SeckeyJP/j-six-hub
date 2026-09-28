@@ -188,7 +188,7 @@ function projectPosition(records, model, snapshot) {
           review.payload.policySha256 !== first.payload.policySha256 ||
           JSON.stringify([...(review.payload.artifactRecordIds ?? [])].sort()) !== JSON.stringify(activeIds) ||
           record.payload.reviewRecordId !== review.recordId ||
-          gateGaps(gate, before, review, generation, record.recordedAt).length) {
+          gateGaps(gate, before, review, generation, record.recordedAt, snapshot, false).length) {
           throw new Error(`Phase ${phase}のゲート証拠が不足しています`);
         }
         if (gate.scope === "task") {
@@ -237,7 +237,7 @@ function projectPosition(records, model, snapshot) {
         record.payload?.generation !== generation ||
         !snapshot.validCompletionRecordIds?.includes(record.recordId) ||
         !review || !decision || decision.payload.outcome !== "approved" ||
-        gateGaps(gate, before, review, generation, record.recordedAt).length ||
+        gateGaps(gate, before, review, generation, record.recordedAt, snapshot, false).length ||
         active.some((item) => !item || !snapshot.verifiedRecordIds.includes(item.recordId) ||
           item.payload.targetCommit !== record.payload.subjectCommit) ||
         JSON.stringify(record.payload.artifactRecordIds) !== JSON.stringify(active.map((item) => item.recordId).sort()) ||
@@ -252,8 +252,8 @@ function projectPosition(records, model, snapshot) {
   return { phase, generation, first };
 }
 
-/** @param {any} gate @param {any[]} records @param {any} review @param {number} generation @param {string} now */
-function gateGaps(gate, records, review, generation, now) {
+/** @param {any} gate @param {any[]} records @param {any} review @param {number} generation @param {string} now @param {any} snapshot @param {boolean=} requireCurrent */
+function gateGaps(gate, records, review, generation, now, snapshot, requireCurrent = true) {
   if (!gate) return [];
   const layers = /** @type {any[]} */ (gate.layers);
   if (gate.scope === "task") {
@@ -297,7 +297,10 @@ function gateGaps(gate, records, review, generation, now) {
           item.payload?.checkId === check.id);
         const currentArtifact = [...records].reverse().find((item) => item.kind === "artifact.submitted" &&
           item.payload?.phase === gate.phase && item.payload?.generation === generation);
-        if (!result || result.payload?.result !== "passed" ||
+        const evidenceValid = check.id !== "integration_tests" || !!result?.payload?.evidenceManifest &&
+          snapshot.verifiedCheckRecordIds?.includes(result.recordId) &&
+          (!requireCurrent || snapshot.currentCheckRecordIds?.includes(result.recordId));
+        if (!result || result.payload?.result !== "passed" || !evidenceValid ||
           result.payload?.subjectCommit !== currentArtifact?.payload?.targetCommit) {
           missing.push(`check:${check.id}:missing-or-failed`);
         }
@@ -329,7 +332,7 @@ function gateGaps(gate, records, review, generation, now) {
 /**
  * Pure projection. The snapshot must come from a separate Git verifier; an unverified claim is never a pass.
  * @param {any[]} records @param {any} process @param {string} policySha256
- * @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[],verifiedAtCommits:Record<string,string[]>,validTransitionRecordIds:string[],validCompletionRecordIds?:string[]}} snapshot @param {string=} now
+ * @param {{repoId:string,commit:string,baseCommitVerified:boolean,verifiedRecordIds:string[],currentRecordIds:string[],verifiedAtCommits:Record<string,string[]>,verifiedCheckRecordIds?:string[],currentCheckRecordIds?:string[],validTransitionRecordIds:string[],validCompletionRecordIds?:string[]}} snapshot @param {string=} now
  */
 export function evaluateProject(records, process, policySha256, snapshot, now = new Date().toISOString()) {
   if (!Array.isArray(records) || !records.length) throw new Error("案件recordがありません");
@@ -363,6 +366,15 @@ export function evaluateProject(records, process, policySha256, snapshot, now = 
     for (const id of transition.payload.artifactRecordIds) {
       if (!snapshot.currentRecordIds.includes(id)) missing.push(`passed-artifact:${id}:changed`);
     }
+    if (transition.payload.from === "P5") {
+      const transitionIndex = records.indexOf(transition);
+      const qualityCheck = [...records.slice(0, transitionIndex)].reverse().find((item) =>
+        item.kind === "gate.check_recorded" && item.payload?.phase === "P5" &&
+        item.payload?.generation === transition.payload.generation && item.payload?.checkId === "integration_tests");
+      if (!qualityCheck || !snapshot.currentCheckRecordIds?.includes(qualityCheck.recordId)) {
+        missing.push(`passed-check:${qualityCheck?.recordId ?? "P5/integration_tests"}:changed`);
+      }
+    }
   }
   const submissions = records.filter((item) => item.kind === "artifact.submitted" &&
     item.payload?.phase === phase && item.payload?.generation === generation);
@@ -386,7 +398,7 @@ export function evaluateProject(records, process, policySha256, snapshot, now = 
       missing.push(`review:${phase}`);
       review = null;
     }
-    missing.push(...gateGaps(gate, records, review, generation, now));
+    missing.push(...gateGaps(gate, records, review, generation, now, snapshot));
   }
   const hasCompletion = !nextPhase && records.some((item) => item.kind === "phase.completed" &&
     item.payload?.phase === phase && item.payload?.generation === generation);

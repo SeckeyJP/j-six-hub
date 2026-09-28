@@ -99,6 +99,17 @@ function acceptedArtifactManifest(repo, commit) {
       { stdio: ["ignore", "pipe", "pipe"] })) }));
 }
 
+/** @param {string} repo @param {string} commit */
+function qualityEvidenceManifest(repo, commit) {
+  return [
+    ["integration_test", "tests/integration.test.mjs"],
+    ["integration_output", "docs/integration-result.txt"],
+    ["quality_metrics", "docs/quality-metrics.md"],
+  ].map(([evidenceId, path]) => ({ evidenceId, path,
+    sha256: sha(execFileSync("git", ["-C", repo, "show", `${commit}:${path}`],
+      { stdio: ["ignore", "pipe", "pipe"] })) }));
+}
+
 /** @param {unknown} value @param {string} name */
 function requireText(value, name) {
   if (typeof value !== "string" || !value.trim() || value.length > 1000) throw new Error(`${name}が不正です`);
@@ -513,7 +524,13 @@ export function createPocService(config) {
           projectRecords.some((item) => item.kind === "gate.check_recorded" &&
             item.payload?.gateId === "quality_acceptance" && item.payload?.generation === current.generation) ||
           !commitPattern.test(command.baseCommit ?? "") || request.payload.baseCommit !== command.baseCommit ||
-          !hashPattern.test(command.evidenceSha256 ?? "")) throw new Error("品質検査結果の対象が不正です");
+          !hashPattern.test(command.evidenceSha256 ?? "") || !Array.isArray(command.evidenceManifest)) {
+          throw new Error("品質検査結果の対象が不正です");
+        }
+        if (JSON.stringify(command.evidenceManifest) !==
+          JSON.stringify(qualityEvidenceManifest(fixture.repo, current.targetCommit))) {
+          throw new Error("品質検査の証跡manifestが一致しません");
+        }
         verifyArtifact(fixture.repo, { targetCommit: current.targetCommit,
           path: "docs/quality-metrics.md", sha256: command.metricsSha256 });
         verifyArtifact(fixture.repo, { targetCommit: current.targetCommit,
@@ -523,10 +540,14 @@ export function createPocService(config) {
           checkId: "integration_tests", result: "passed", source: "node-test-synthetic-integration-v1",
           subjectCommit: current.targetCommit, baseCommit: command.baseCommit,
           evidenceSha256: command.evidenceSha256, metricsSha256: command.metricsSha256,
+          evidenceManifest: command.evidenceManifest,
           policySha256: localPolicySha256 } };
       } else if (command.type === "deliverables.request") {
         if (current.phase !== "P6" || projectRecords.some((item) => item.kind === "deliverables.requested" &&
-          item.payload?.generation === current.generation)) throw new Error("納品物生成はこの世代で投入済みです");
+          item.payload?.generation === current.generation) || current.missing.some((item) =>
+          item.startsWith("passed-check:") || item.startsWith("passed-artifact:") || item.startsWith("target:"))) {
+          throw new Error("納品物生成の対象証跡が不足または変更されています");
+        }
         record = { ...common, kind: "deliverables.requested", payload: { phase: "P6",
           generation: current.generation, baseCommit: current.targetCommit,
           policySha256: localPolicySha256 } };
@@ -676,9 +697,10 @@ export function createPocService(config) {
       "docs/integration-result.txt"]);
     git(fixture.repo, ["-c", "user.name=J-SIX synthetic PoC", "-c", "user.email=poc@localhost",
       "commit", "-qm", "Synthetic integration and quality metrics"]);
+    const evidenceManifest = qualityEvidenceManifest(fixture.repo, head(fixture.repo));
     const result = await execute({ ...command, type: "quality.result", expectedHead: requested.head,
       targetCommit: head(fixture.repo), baseCommit: command.targetCommit,
-      evidenceSha256: sha(output), metricsSha256: sha(metrics) });
+      evidenceSha256: sha(output), metricsSha256: sha(metrics), evidenceManifest });
     return { ...result, integration: { result: "passed", evidenceSha256: sha(output),
       subjectCommit: result.project.targetCommit } };
   }
