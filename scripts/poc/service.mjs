@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { appendRecord, initializeLedger, readLedger } from "./ledger.mjs";
 import { verifyArtifact, verifiedSnapshot } from "./artifact-verifier.mjs";
 import { evaluateProject, validateProcess } from "./process-model.mjs";
-import { localPolicySha256 } from "./policy.mjs";
+import { localPolicy, localPolicySha256, requiredChecks } from "./policy.mjs";
 import { runSyntheticTdd } from "./fake-runner.mjs";
 import { inspectSyntheticCandidate } from "./synthetic-checks.mjs";
 
@@ -70,6 +70,33 @@ function suggestedArtifact(repo, commit, artifactId) {
       { stdio: ["ignore", "pipe", "pipe"] });
     return { path, sha256: sha(body) };
   } catch { return null; }
+}
+
+/** @param {string} repo @param {string} baseCommit @param {string} candidateCommit @param {any} inspected */
+function candidatePreview(repo, baseCommit, candidateCommit, inspected) {
+  const bounded = (/** @type {string} */ value) => value.slice(0, 50 * 1024);
+  return {
+    stat: bounded(git(repo, ["diff", "--stat", baseCommit, candidateCommit])),
+    diff: bounded(git(repo, ["diff", "--no-ext-diff", "--unified=3", baseCommit, candidateCommit, "--",
+      "src/approval.mjs", "tests/approval.test.mjs", "tests/holdout.test.mjs"])),
+    steps: (inspected?.payload?.steps ?? []).map((/** @type {any} */ step) => ({
+      id: step.id, commit: step.commit, test: step.test ?? null,
+    })),
+    checks: (inspected?.payload?.checks ?? []).map((/** @type {any} */ check) => ({
+      layer: check.layer, id: check.id, result: check.result, subjectCommit: check.subjectCommit,
+      evidenceSha256: check.evidenceSha256, evidence: check.evidence,
+    })),
+  };
+}
+
+/** @param {string} repo @param {string} commit */
+function acceptedArtifactManifest(repo, commit) {
+  return [
+    ["holdout_tests", "tests/holdout.test.mjs"], ["tests", "tests/approval.test.mjs"],
+    ["code", "src/approval.mjs"], ["evidence_pack", "docs/evidence-pack.json"],
+  ].map(([artifactId, path]) => ({ artifactId, path,
+    sha256: sha(execFileSync("git", ["-C", repo, "show", `${commit}:${path}`],
+      { stdio: ["ignore", "pipe", "pipe"] })) }));
 }
 
 /** @param {unknown} value @param {string} name */
@@ -207,8 +234,13 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
       suggested: includeSuggestions ? suggestedArtifact(fixture.repo, targetCommit, artifactId) : null })),
     run: projection.phase === "P4" ? { runId: inspected?.payload.runId ?? null,
       candidateCommit: inspected?.payload.candidateCommit ?? null,
-      checks: inspected?.payload.checks ?? [], accepted: !!accepted,
-      evidenceCommit: accepted?.payload.evidenceCommit ?? null } : null,
+      checks: (inspected?.payload.checks ?? []).map((/** @type {any} */ check) => ({
+        layer: check.layer, id: check.id, result: check.result, subjectCommit: check.subjectCommit,
+        evidenceSha256: check.evidenceSha256,
+      })), accepted: !!accepted,
+      evidenceCommit: accepted?.payload.evidenceCommit ?? null,
+      preview: includeSuggestions && inspected ? candidatePreview(fixture.repo,
+        inspected.payload.baseCommit, inspected.payload.candidateCommit, inspected) : null } : null,
     canTransition: projection.canTransition && writablePhases.has(projection.phase),
     canComplete: projection.canComplete, completed: projection.completed,
     missing: projection.missing, artifacts, simulated: true,
@@ -345,12 +377,15 @@ export function createPocService(config) {
         if (current.phase !== "P4" || projectRecords.some((item) => item.kind === "task.run_requested" &&
           item.payload?.generation === current.generation)) throw new Error("この世代の合成runは投入済みです");
         const task = passedText(projectRecords, fixture.repo, current.targetCommit, "task_definition");
-        if (!task.text.includes("TASK-001:") || !task.text.includes("REQ-001:")) {
+        const checks = requiredChecks(task.text);
+        if (!task.text.includes("TASK-001:") || !task.text.includes("REQ-001:") ||
+          JSON.stringify(checks) !== JSON.stringify(localPolicy.requiredCheckIds)) {
           throw new Error("合成runは固定TASK-001に限定します");
         }
         record = { ...common, kind: "task.run_requested", payload: { phase: "P4",
           generation: current.generation, runId: randomUUID(), mode: "fake",
           baseCommit: current.targetCommit, taskDefinitionRecordId: task.recordId,
+          taskDefinitionSha256: sha(task.text), requiredChecks: checks,
           policySha256: localPolicySha256 } };
       } else if (command.type === "task.fake_result") {
         const requested = projectRecords.find((item) => item.kind === "task.run_requested" &&
@@ -361,13 +396,20 @@ export function createPocService(config) {
           command.run?.mode !== "fake" || command.run?.runId !== command.runId ||
           command.run?.baseCommit !== current.targetCommit ||
           !commitPattern.test(command.run?.candidateCommit ?? "") ||
-          !Array.isArray(command.checks) || command.checks.length !== 15) {
+          !Array.isArray(command.checks) || command.checks.length !== localPolicy.requiredCheckIds.length ||
+          JSON.stringify(command.checks.map((/** @type {any} */ item) => item.id)) !==
+            JSON.stringify(requested.payload.requiredChecks) ||
+          command.checks.some((/** @type {any} */ item) => !["passed", "failed", "not_run"].includes(item.result) ||
+            item.subjectCommit !== command.run.candidateCommit || !hashPattern.test(item.evidenceSha256 ?? "") ||
+            typeof item.evidence?.output !== "string" || item.evidence.output.length > 16 * 1024)) {
           throw new Error("合成runの結果・対象版が不正です");
         }
         record = { ...common, kind: "task.run_inspected", payload: { phase: "P4",
           generation: current.generation, runId: command.runId, requestRecordId: requested.recordId,
           mode: "fake", baseCommit: current.targetCommit, candidateCommit: command.run.candidateCommit,
-          steps: command.run.steps, checks: command.checks, policySha256: localPolicySha256 } };
+          steps: command.run.steps, checks: command.checks,
+          taskDefinitionSha256: requested.payload.taskDefinitionSha256,
+          requiredChecks: requested.payload.requiredChecks, policySha256: localPolicySha256 } };
       } else if (command.type === "task.accept_request") {
         const inspected = projectRecords.find((item) => item.kind === "task.run_inspected" &&
           item.payload?.runId === command.runId && item.payload?.generation === current.generation);
@@ -375,8 +417,9 @@ export function createPocService(config) {
           item.payload?.runId === command.runId && item.payload?.generation === current.generation);
         if (current.phase !== "P4" || !inspected ||
           projectRecords.some((item) => item.kind === "task.accept_requested" && item.payload?.runId === command.runId) ||
-          inspected.payload?.checks?.length !== 15 ||
-          checkRecords.length !== 16 ||
+          JSON.stringify(inspected.payload?.requiredChecks) !== JSON.stringify(localPolicy.requiredCheckIds) ||
+          inspected.payload?.checks?.length !== localPolicy.requiredCheckIds.length ||
+          checkRecords.length !== localPolicy.requiredCheckIds.length + 1 ||
           checkRecords.some((item) => item.payload.layerId === "G3" ? item.payload.result !== "omitted" :
             item.payload.result !== "passed") ||
           inspected.payload.checks.some((/** @type {any} */ item) => item.result !== "passed" ||
@@ -395,11 +438,21 @@ export function createPocService(config) {
           request.payload.baseCommit !== command.baseCommit ||
           request.payload.candidateCommit !== command.candidateCommit ||
           !commitPattern.test(command.evidenceCommit ?? "") ||
-          head(fixture.repo) !== command.evidenceCommit) throw new Error("候補受入れのGit結果が一致しません");
+          head(fixture.repo) !== command.evidenceCommit ||
+          !Array.isArray(command.artifactManifest) || command.artifactManifest.length !== 4 ||
+          !hashPattern.test(command.evidenceSha256 ?? "") || !hashPattern.test(command.evidenceBundleSha256 ?? "")) {
+          throw new Error("候補受入れのGit結果が一致しません");
+        }
+        const expectedManifest = acceptedArtifactManifest(fixture.repo, command.evidenceCommit);
+        if (JSON.stringify(command.artifactManifest) !== JSON.stringify(expectedManifest)) {
+          throw new Error("候補受入れ成果物のmanifestが一致しません");
+        }
         record = { ...common, kind: "task.candidate_accepted", payload: { phase: "P4",
           generation: current.generation, runId: command.runId, requestRecordId: request.recordId,
           baseCommit: command.baseCommit, candidateCommit: command.candidateCommit,
           evidenceCommit: command.evidenceCommit, evidenceSha256: command.evidenceSha256,
+          evidenceBundleSha256: command.evidenceBundleSha256,
+          artifactManifest: command.artifactManifest,
           policySha256: localPolicySha256 } };
       } else if (command.type === "task.check_record") {
         const inspected = projectRecords.find((item) => item.kind === "task.run_inspected" &&
@@ -420,7 +473,7 @@ export function createPocService(config) {
       } else if (command.type === "task.g3_omit") {
         const checks = projectRecords.filter((item) => item.kind === "gate.check_recorded" &&
           item.payload?.runId === command.runId && ["G1", "G2"].includes(item.payload?.layerId));
-        if (current.phase !== "P4" || checks.length !== 15 ||
+        if (current.phase !== "P4" || checks.length !== localPolicy.requiredCheckIds.length ||
           projectRecords.some((item) => item.kind === "gate.check_recorded" &&
             item.payload?.runId === command.runId && item.payload?.layerId === "G3")) {
           throw new Error("G3省略の前提検査が不足しています");
@@ -441,6 +494,8 @@ export function createPocService(config) {
         }
         verifyArtifact(fixture.repo, { targetCommit: current.targetCommit,
           path: "docs/evidence-pack.json", sha256: accepted.payload.evidenceSha256 });
+        verifyArtifact(fixture.repo, { targetCommit: current.targetCommit,
+          path: "docs/check-evidence.json", sha256: accepted.payload.evidenceBundleSha256 });
         record = { ...common, kind: "gate.check_recorded", payload: { phase: "P4",
           generation: current.generation, gateId: "task_quality_gate", layerId: "G4",
           checkId: "evidence_pack", runId: command.runId, result: "passed",
@@ -559,17 +614,28 @@ export function createPocService(config) {
       git(fixture.repo, ["status", "--porcelain"]) || git(worktree, ["status", "--porcelain"])) {
       throw new Error("受入れ対象のGit状態が変わりました");
     }
-    const evidence = { schemaVersion: 1, mode: "fake", runId: command.runId,
+    const checkEvidence = { schemaVersion: 1, mode: "fake", runId: command.runId,
       baseCommit: request.payload.baseCommit, candidateCommit: request.payload.candidateCommit,
       steps: inspected.payload.steps, checks: inspected.payload.checks,
+      runtime: { node: process.version }, checkDefinition: "hub-fixed-synthetic-checks-v3",
+      policySha256: localPolicySha256 };
+    const evidenceBody = JSON.stringify(checkEvidence, null, 2) + "\n";
+    const evidence = { schemaVersion: 1, mode: "fake", runId: command.runId,
+      baseCommit: request.payload.baseCommit, candidateCommit: request.payload.candidateCommit,
+      steps: inspected.payload.steps,
+      checks: inspected.payload.checks.map((/** @type {any} */ check) => ({ layer: check.layer,
+        id: check.id, result: check.result, subjectCommit: check.subjectCommit,
+        evidenceSha256: check.evidenceSha256, source: check.source })),
+      checkEvidence: { path: "docs/check-evidence.json", sha256: sha(evidenceBody) },
       g3: { result: "omitted", reason: "fixed synthetic PoC policy; maximum L3", level: "L3" },
       unverified: ["independent G3 judgement", "real CLI execution", "enterprise acceptance",
         "general-purpose SAST and dependency vulnerability scanning"],
       policySha256: localPolicySha256 };
     const body = JSON.stringify(evidence, null, 2) + "\n";
     await mkdir(join(worktree, "docs"), { recursive: true });
+    await writeFile(join(worktree, "docs/check-evidence.json"), evidenceBody);
     await writeFile(join(worktree, "docs/evidence-pack.json"), body);
-    git(worktree, ["add", "--", "docs/evidence-pack.json"]);
+    git(worktree, ["add", "--", "docs/check-evidence.json", "docs/evidence-pack.json"]);
     git(worktree, ["-c", "user.name=J-SIX synthetic PoC", "-c", "user.email=poc@localhost",
       "commit", "-qm", "Synthetic G4 evidence pack"]);
     const evidenceCommit = head(worktree);
@@ -577,9 +643,11 @@ export function createPocService(config) {
       throw new Error("受入れ前に対象repoが変わりました");
     }
     git(fixture.repo, ["merge", "--ff-only", evidenceCommit]);
+    const artifactManifest = acceptedArtifactManifest(fixture.repo, evidenceCommit);
     let saved = await execute({ ...command, type: "task.accept_result", expectedHead: requested.head,
       targetCommit: evidenceCommit, baseCommit: request.payload.baseCommit,
-      candidateCommit: request.payload.candidateCommit, evidenceCommit, evidenceSha256: sha(body) });
+      candidateCommit: request.payload.candidateCommit, evidenceCommit, evidenceSha256: sha(body),
+      evidenceBundleSha256: sha(evidenceBody), artifactManifest });
     saved = await execute({ ...command, type: "task.g4_record", expectedHead: saved.head,
       targetCommit: evidenceCommit });
     return { ...saved, candidateCommit: evidenceCommit };
@@ -625,7 +693,7 @@ export function createPocService(config) {
       `${command.targetCommit}:src/approval.mjs`], { stdio: ["ignore", "pipe", "pipe"] }));
     const evidenceHash = sha(execFileSync("git", ["-C", fixture.repo, "show",
       `${command.targetCommit}:docs/evidence-pack.json`], { stdio: ["ignore", "pipe", "pipe"] }));
-    const body = `# 合成案件の逆生成設計書\n\n逆生成: 実装の現状を記録した文書。要求充足の独立証明ではない。\n対象commit: ${command.targetCommit}\n実装: src/approval.mjs (表示用hash ${codeHash})\n証跡: docs/evidence-pack.json (表示用hash ${evidenceHash})\nPhase 2代替項目: 設計書目次と検証戦略を確認し、合成題材の範囲で解消。\n納品物: requirement.md, design.md, adr.md, src/approval.mjs, tests/approval.test.mjs, tests/holdout.test.mjs, tests/integration.test.mjs, docs/evidence-pack.json, docs/integration-result.txt, docs/quality-metrics.md, docs/reverse-generated.md。\n未検証: 実顧客による合意、実CLI、企業システム連携。\n`;
+    const body = `# 合成案件の逆生成設計書\n\n逆生成: 実装の現状を記録した文書。要求充足の独立証明ではない。\n対象commit: ${command.targetCommit}\n実装: src/approval.mjs (表示用hash ${codeHash})\n証跡: docs/evidence-pack.json (表示用hash ${evidenceHash})\nPhase 2代替項目: 設計書目次と検証戦略を確認し、合成題材の範囲で解消。\n納品物: requirement.md, design.md, adr.md, src/approval.mjs, tests/approval.test.mjs, tests/holdout.test.mjs, tests/integration.test.mjs, docs/check-evidence.json, docs/evidence-pack.json, docs/integration-result.txt, docs/quality-metrics.md, docs/reverse-generated.md。\n未検証: 実顧客による合意、実CLI、企業システム連携。\n`;
     await writeFile(join(fixture.repo, "docs/reverse-generated.md"), body);
     if (head(fixture.repo) !== command.targetCommit) throw new Error("納品物保存前にGit HEADが変わりました");
     git(fixture.repo, ["add", "--", "docs/reverse-generated.md"]);

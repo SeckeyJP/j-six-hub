@@ -166,6 +166,8 @@ function explainMissing(reason, project) {
     return `検査が未実装: ${reason.slice(6, -14)}`;
   }
   if (reason.startsWith("passed-artifact:")) return `過去Phaseの成果物が現在版で変わりました (${reason.slice(16)})`;
+  if (reason === "task:candidate-not-accepted") return "検査済み候補の受入れが必要です";
+  if (reason === "task:accepted-artifacts-mismatch") return "提出物が受入れ済み候補のmanifestと一致しません";
   if (reason === "target:verification-unknown") return "対象Git・工程照合が不明です。操作を保留しています。";
   if (reason === "target:commit-changed") return "対象Git commitが提出時から変わりました";
   if (reason === "target:baseline-unverified") return "基準commitの系列を照合できません";
@@ -202,10 +204,33 @@ function renderDetail() {
       const checks = element("ul");
       for (const check of project.run.checks) append(checks, element("li", `${check.layer}/${check.id}: ${check.result}`));
       append(root, checks);
-      if (!project.run.accepted) {
+      if (project.run.preview) {
+        const preview = element("details");
+        append(preview, element("summary", "候補差分・TDD commit・検査証跡を確認"));
+        append(preview, element("h4", "差分要約"), element("pre", project.run.preview.stat || "差分要約なし"),
+          element("h4", "対象差分"), element("pre", project.run.preview.diff || "対象差分なし"),
+          element("h4", "TDD commit"));
+        const steps = element("ol");
+        for (const step of project.run.preview.steps) append(steps,
+          element("li", `${step.id}: ${step.commit}${step.test ? ` · ${step.test.status}` : ""}`, "code"));
+        append(preview, steps, element("h4", "検査出力"));
+        for (const check of project.run.preview.checks) {
+          const evidence = element("details");
+          append(evidence, element("summary", `${check.layer}/${check.id}: ${check.result}`),
+            element("p", `${check.evidence?.tool ?? "不明"} ${check.evidence?.toolVersion ?? ""} · ${check.evidence?.command ?? ""}`, "code"),
+            element("pre", check.evidence?.output || "出力なし"),
+            element("p", `証跡SHA-256 ${check.evidenceSha256}`, "code"));
+          append(preview, evidence);
+        }
+        append(root, preview);
+      }
+      const passed = project.run.checks.length === 15 && project.run.checks.every((check) => check.result === "passed");
+      if (!project.run.accepted && passed) {
         const accept = form("検査済み候補を Git に受け入れる", "候補を受け入れる", async () =>
           command("accept-candidates", { ...common(project), runId: project.run.runId }));
         append(accept.node, accept.button); append(root, accept.node);
+      } else if (!project.run.accepted && !passed) {
+        append(root, element("p", "検査に失敗または未実行があります。候補は受け入れられません。P3以前へ差し戻し、定義を直して再実行してください。", "warning"));
       }
     } else {
       const run = form("固定合成タスクを開始", "TDD を実行", async () => command("fake-runs", common(project)));

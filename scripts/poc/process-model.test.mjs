@@ -247,6 +247,28 @@ describe("process projection", () => {
     expect(state.missing).toContain("check:G1/build:missing-or-failed");
     expect(state.missing).toContain("check:G4/evidence_pack:missing-or-failed");
     expect(state.missing).toContain("check:G3/scope_judge:missing-or-failed");
+    const manifest = [
+      ["holdout_tests", "tests/holdout.test.mjs"], ["tests", "tests/approval.test.mjs"],
+      ["code", "src/approval.mjs"], ["evidence_pack", "docs/evidence-pack.json"],
+    ].map(([artifactId, path]) => ({ artifactId, path, sha256: "e".repeat(64) }));
+    records.push({ schemaVersion: 1, recordId: "accepted", projectId: "sample", kind: "task.candidate_accepted",
+      recordedAt: "2026-09-27T00:00:00.000Z", payload: { phase: "P4", generation: 0, runId: "run-1",
+        candidateCommit: artifactCommit, evidenceCommit: artifactCommit, artifactManifest: manifest } });
+    const alternate = manifest.map((item) => ({ schemaVersion: 1, recordId: `alternate-${item.artifactId}`,
+      projectId: "sample", kind: "artifact.submitted", recordedAt: "2026-09-27T00:00:00.000Z",
+      payload: { phase: "P4", generation: 0, artifactId: item.artifactId, targetCommit: artifactCommit,
+        path: item.path, sha256: "d".repeat(64) } }));
+    records.push(...alternate, { schemaVersion: 1, recordId: "review-alternate", projectId: "sample",
+      kind: "phase.review_requested", recordedAt: "2026-09-27T00:00:00.000Z",
+      payload: { phase: "P4", generation: 0,
+        artifactRecordIds: alternate.map((item) => item.recordId).sort(), policySha256 } });
+    const idsWithAlternate = [...verifiedRecordIds, ...alternate.map((item) => item.recordId)];
+    const rebound = evaluateProject(records, process, policySha256, { repoId: "approval-workflow",
+      commit: artifactCommit, verifiedRecordIds: idsWithAlternate, currentRecordIds: idsWithAlternate,
+      baseCommitVerified: true, verifiedAtCommits: { [artifactCommit]: idsWithAlternate },
+      validTransitionRecordIds: ["to-p1", "to-p2", "to-p3", "to-p4"] });
+    expect(rebound.canTransition).toBe(false);
+    expect(rebound.missing).toContain("task:accepted-artifacts-mismatch");
   });
 
   it("blocks a later phase when a passed artifact changed, but accepts unrelated edits", () => {

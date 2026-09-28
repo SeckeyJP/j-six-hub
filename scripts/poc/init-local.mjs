@@ -23,8 +23,8 @@ const documents = {
   "adr.md": "# Synthetic design decision\n",
   "prototype.md": "# Synthetic working prototype\n",
   "properties.md": "# Synthetic properties\n",
-  "tasks.md": "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable approval\nPROP-001: finite values\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: unit,lint\n",
-  "task.md": "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable approval\nPROP-001: finite values\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: unit,lint\n",
+  "tasks.md": "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable approval\nPROP-001: finite values\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
+  "task.md": "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable approval\nPROP-001: finite values\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
   "src/approval.mjs": "export function approve(amount, limit) { return false; }\n",
 };
 for (const [path, body] of Object.entries(documents)) await writeFile(join(repo, path), body);

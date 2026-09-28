@@ -39,6 +39,17 @@ export function verifyArtifact(repo, artifact) {
   return true;
 }
 
+/** @param {string} repo @param {string} targetCommit @param {string} content */
+function verifyEvidenceReference(repo, targetCommit, content) {
+  let pack;
+  try { pack = JSON.parse(content); } catch (error) { throw new Error("evidence pack JSONが不正です", { cause: error }); }
+  if (pack?.schemaVersion !== 1 || pack?.checkEvidence?.path !== "docs/check-evidence.json" ||
+    !/^[0-9a-f]{64}$/.test(pack?.checkEvidence?.sha256 ?? "")) {
+    throw new Error("evidence packの検査証跡参照が不正です");
+  }
+  verifyArtifact(repo, { targetCommit, path: pack.checkEvidence.path, sha256: pack.checkEvidence.sha256 });
+}
+
 /** @param {string} repo @param {any[]} records @param {string} commit @param {string} repoId */
 export function verifiedSnapshot(repo, records, commit, repoId) {
   if (typeof repoId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(repoId)) {
@@ -76,12 +87,21 @@ export function verifiedSnapshot(repo, records, commit, repoId) {
     try {
       verifyArtifact(repo, record.payload);
       const content = git(repo, ["show", `${record.payload.targetCommit}:${record.payload.path}`]).toString("utf8");
+      if (record.payload.artifactId === "evidence_pack") {
+        verifyEvidenceReference(repo, record.payload.targetCommit, content);
+      }
       const gaps = validateArtifactStructure(record.payload.artifactId, content);
       if (gaps.length) throw new Error(`artifact構造が不足しています: ${gaps.join(", ")}`);
       verifiedRecordIds.push(record.recordId);
       verifiedContent.set(record.recordId, content);
       try {
-        if (record.payload.targetCommit !== commit) verifyArtifact(repo, { ...record.payload, targetCommit: commit });
+        if (record.payload.targetCommit !== commit) {
+          verifyArtifact(repo, { ...record.payload, targetCommit: commit });
+          if (record.payload.artifactId === "evidence_pack") {
+            verifyEvidenceReference(repo, commit,
+              git(repo, ["show", `${commit}:${record.payload.path}`]).toString("utf8"));
+          }
+        }
         currentRecordIds.push(record.recordId);
       } catch { /* Historical evidence remains valid, but its current premise has changed. */ }
     } catch (error) {

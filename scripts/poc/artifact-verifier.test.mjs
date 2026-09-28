@@ -208,11 +208,11 @@ describe("Git artifact verifier", () => {
   it("rejects TODO task content and a task definition for a different listed task", async () => {
     const { root } = await fixture();
     const controls = "AC-001: acceptance\nPROP-001: property\n依存: none\n" +
-      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit\n";
+      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n";
     const list = `TASK-001: listed task\n${controls}`;
     const definition = `TASK-002: different task\n${controls}`;
     const todo = `TASK-003: TODO\nAC-003: TODO\nPROP-003: TODO\n依存: TODO\n` +
-      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit\n";
+      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n";
     await writeFile(join(root, "task-list.md"), list);
     await writeFile(join(root, "task-definition.md"), definition);
     await writeFile(join(root, "todo.md"), todo);

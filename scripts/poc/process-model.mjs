@@ -261,6 +261,20 @@ function gateGaps(gate, records, review, generation, now) {
       item.payload?.generation === generation);
     const missing = [];
     if (!accepted) missing.push("task:candidate-not-accepted");
+    if (accepted) {
+      const expected = [...(accepted.payload?.artifactManifest ?? [])]
+        .map((item) => ({ artifactId: item.artifactId, path: item.path, sha256: item.sha256,
+          targetCommit: accepted.payload.evidenceCommit }))
+        .sort((a, b) => a.artifactId.localeCompare(b.artifactId));
+      const reviewed = (review?.payload?.artifactRecordIds ?? []).map((/** @type {string} */ id) => records.find((item) =>
+        item.recordId === id && item.kind === "artifact.submitted"))
+        .filter(Boolean).map((/** @type {any} */ item) => ({ artifactId: item.payload.artifactId, path: item.payload.path,
+          sha256: item.payload.sha256, targetCommit: item.payload.targetCommit }))
+        .sort((/** @type {any} */ a, /** @type {any} */ b) => a.artifactId.localeCompare(b.artifactId));
+      if (expected.length !== 4 || JSON.stringify(reviewed) !== JSON.stringify(expected)) {
+        missing.push("task:accepted-artifacts-mismatch");
+      }
+    }
     for (const layer of layers) for (const check of layer.checks) {
       const result = [...records].reverse().find((item) => item.kind === "gate.check_recorded" &&
         item.payload?.gateId === gate.id && item.payload?.generation === generation &&

@@ -47,7 +47,7 @@ describe("synthetic TDD worktree", () => {
       .toBe(git(worktree, ["rev-parse", `${refactor}:tests/approval.test.mjs`]));
     expect(git(repo, ["rev-parse", "HEAD"])).toBe(baseline);
     const inspection = await inspectSyntheticCandidate({ repo, worktreeRoot: join(root, "runs"), run: result,
-      taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: values within limit\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: unit,lint\n",
+      taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: values within limit\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
       requirementSpec: "REQ-001: bounded approval\nAC-001: values within limit\nPROP-001: bounded\n" });
     expect(inspection.checks.map((check) => `${check.layer}/${check.id}`)).toEqual([
       "G1/build", "G1/typecheck", "G1/lint", "G1/format", "G1/sast", "G1/secrets",
@@ -55,12 +55,31 @@ describe("synthetic TDD worktree", () => {
       "G2/mutation", "G2/test_tamper", "G2/holdout", "G2/traceability",
     ]);
     expect(inspection.checks.filter((check) => check.result !== "passed").map((check) => check.id)).toEqual([]);
+    expect(inspection.checks.every((check) => check.evidence.output.length <= 16 * 1024 &&
+      check.evidence.definitionVersion === "hub-fixed-synthetic-checks-v3")).toBe(true);
     expect(inspection.candidateCommit).toBe(refactor);
     await writeFile(join(worktree, "tests/holdout.test.mjs"), "// weakened\n");
     git(worktree, ["add", "tests/holdout.test.mjs"]); git(worktree, ["commit", "-qm", "tamper holdout"]);
     await expect(inspectSyntheticCandidate({ repo, worktreeRoot: join(root, "runs"), run: result,
       taskDefinition: "TASK-001: bounded approval\nallow: src/**\ndeny: tests/holdout.test.mjs\n",
       requirementSpec: "REQ-001: bounded approval\n" })).rejects.toThrow(/候補HEAD/);
+  }, 30_000);
+
+  it("retains all required results and marks G2 not run when G1 fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "jsix-g1-fail-")); roots.push(root);
+    const repo = join(root, "fixture"); await mkdir(repo); await mkdir(join(repo, "src"));
+    git(repo, ["init", "-q"]);
+    await writeFile(join(repo, "src/approval.mjs"), "export const approve = (amount, limit) => false;\n");
+    git(repo, ["add", "."]); git(repo, ["commit", "-qm", "incompatible baseline"]);
+    const baseline = git(repo, ["rev-parse", "HEAD"]);
+    const worktreeRoot = join(root, "runs");
+    const run = await runSyntheticTdd({ repo, worktreeRoot, runId: "g1-fail", baseCommit: baseline });
+    const result = await inspectSyntheticCandidate({ repo, worktreeRoot, run,
+      taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
+      requirementSpec: "REQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n" });
+    expect(result.checks).toHaveLength(15);
+    expect(result.checks.find((check) => check.id === "interface_contract")?.result).toBe("failed");
+    expect(result.checks.filter((check) => check.layer === "G2").every((check) => check.result === "not_run")).toBe(true);
   }, 30_000);
 
   it("rejects a passing candidate that weakens the previously fixed hold-out", async () => {
@@ -86,7 +105,7 @@ describe("synthetic TDD worktree", () => {
       steps: [...original.steps.slice(0, 3), { id: "refactor", commit: candidateCommit,
         test: { status: "passed", failureCode: null } }] };
     const result = await inspectSyntheticCandidate({ repo, worktreeRoot, run,
-      taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/**\ndeny: secrets/**\nhold-out: tests/holdout.test.mjs\nrequired-checks: unit,lint\n",
+      taskDefinition: "TASK-001: bounded approval\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/**\ndeny: secrets/**\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
       requirementSpec: "REQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n" });
     expect(result.checks.find((check) => check.id === "test_tamper")?.result).toBe("failed");
   }, 30_000);

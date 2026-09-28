@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 // These are additional checks for the synthetic local PoC, not gates added to the J-SIX definition.
 export const localPolicy = Object.freeze({
   schemaVersion: 1,
-  id: "single-pc-developer-journey-v6",
+  id: "single-pc-developer-journey-v7",
   artifactRules: {
     requirement_spec: ["REQ-", "AC-", "PROP-", "受入条件", "非機能", "未確定"],
     design_spec: ["検証戦略", "設計書目次"],
@@ -15,6 +15,8 @@ export const localPolicy = Object.freeze({
   syntheticTaskLimit: 1,
   g3: { syntheticOmissionAllowed: true, outcome: "omitted", maximumAutonomy: "L3" },
   syntheticIntegration: "node-test-fixed-fixture-v1",
+  requiredCheckIds: ["build", "typecheck", "lint", "format", "sast", "secrets", "deps", "scope",
+    "interface_contract", "tests", "coverage", "mutation", "test_tamper", "holdout", "traceability"],
   simulatedHumanDecision: true,
 });
 
@@ -42,9 +44,10 @@ function taskGaps(content) {
       missing.push(`task:${field}:missing-or-invalid`);
     }
   }
-  const checks = /^required-checks:[ \t]*(\S[^\r\n]*)$/m.exec(content)?.[1]?.trim();
-  if (!checks || !checks.split(",").map((part) => part.trim())
-    .every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part) && !["none", "TODO"].includes(part))) {
+  /** @type {string[]} */
+  let checks = [];
+  try { checks = requiredChecks(content); } catch { /* Report the stable validation error below. */ }
+  if (JSON.stringify(checks) !== JSON.stringify(localPolicy.requiredCheckIds)) {
     missing.push("task:required-checks:missing-or-invalid");
   }
   return missing;
@@ -64,6 +67,17 @@ function hasFilledField(content, field, allowNone = false) {
 /** @param {string} content */
 export function taskIds(content) {
   return [...content.matchAll(/^TASK-[0-9]+:/gm)].map((match) => match[0].slice(0, -1));
+}
+
+/** The fixed synthetic adapter only supports the complete, ordered policy set. @param {string} content */
+export function requiredChecks(content) {
+  const value = /^required-checks:[ \t]*(\S[^\r\n]*)$/m.exec(content)?.[1]?.trim();
+  if (!value) throw new Error("required-checksがありません");
+  const checks = value.split(",").map((part) => part.trim());
+  if (new Set(checks).size !== checks.length || checks.some((part) => !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part))) {
+    throw new Error("required-checksが不正です");
+  }
+  return checks;
 }
 
 /** @param {string} content */

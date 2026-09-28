@@ -38,11 +38,11 @@ async function fixture() {
     "adr.md": "# Synthetic decision\n",
     "prototype.md": "# Synthetic working prototype\n",
     "properties.md": "# Synthetic properties\n",
-    "tasks.md": "TASK-001: synthetic change\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit,lint\n",
-    "task.md": "TASK-001: synthetic change\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit,lint\n",
+    "tasks.md": "TASK-001: synthetic change\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
+    "task.md": "TASK-001: synthetic change\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n",
     "src/approval.mjs": "export function approve(amount, limit) { return false; }\n",
   });
-  content["tasks.md"] = "TASK-001: synthetic change\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: unit,lint\n";
+  content["tasks.md"] = "TASK-001: synthetic change\nREQ-001: bounded approval\nAC-001: observable\nPROP-001: bounded\n依存: none\nallow: src/**,tests/approval.test.mjs\ndeny: tests/holdout.test.mjs\nhold-out: tests/holdout.test.mjs\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n";
   content["task.md"] = content["tasks.md"] ?? "";
   for (const [path, body] of Object.entries(content)) await writeFile(join(repo, path), body);
   git(repo, ["add", "."]); git(repo, ["commit", "-qm", "baseline"]);
@@ -333,6 +333,11 @@ describe("localhost service commands", () => {
     expect(accepted.project.phase).toBe("P4");
     expect(git(repo, ["rev-parse", "HEAD"])).toBe(accepted.candidateCommit);
     expect(accepted.project.targetCommit).toBe(accepted.candidateCommit);
+    const evidencePack = JSON.parse(readFileSync(join(repo, "docs/evidence-pack.json"), "utf8"));
+    expect(evidencePack.checkEvidence.path).toBe("docs/check-evidence.json");
+    expect(evidencePack.checkEvidence.sha256).toBe(hash(readFileSync(join(repo, "docs/check-evidence.json"), "utf8")));
+    expect(JSON.parse(readFileSync(join(repo, "docs/check-evidence.json"), "utf8")).checks[0].evidence.command)
+      .toBe("node --check src/approval.mjs");
     expect(accepted.project.missing.some((reason) => reason.includes("unimplemented"))).toBe(false);
     let current = /** @type {{head:string,project:any}} */ (accepted);
     for (const [artifactId, path] of /** @type {[string,string][]} */ ([
