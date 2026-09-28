@@ -95,7 +95,7 @@ export async function readLedger(root) {
   return { head, records };
 }
 
-/** @param {string} root @param {string|null} expectedHead @param {unknown} input */
+/** @param {string} root @param {string|null} expectedHead @param {unknown|((state:{head:string|null,records:Record<string,any>[]})=>Promise<unknown>|unknown)} input */
 export async function appendRecord(root, expectedHead, input) {
   const lockPath = join(root, ".git", "poc-operation.lock");
   let handle;
@@ -110,7 +110,8 @@ export async function appendRecord(root, expectedHead, input) {
   try {
     const state = await readLedger(root);
     if (state.head !== expectedHead) throw new Error("期待old SHAと台帳refが異なります（stale）");
-    const record = assertRecord(input);
+    // Domain validation must run after acquiring the lock, against this exact ledger head.
+    const record = assertRecord(typeof input === "function" ? await input(state) : input);
     if (state.records.some((item) => item.recordId === record.recordId)) throw new Error("record IDが重複しています");
     const body = { ...record, previousCommit: state.head,
       previousRecordHash: state.records.at(-1)?.recordHash ?? null };

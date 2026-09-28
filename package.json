@@ -17,6 +17,8 @@
     "lint": "eslint .",
     "test": "npm run process:fetch && vitest run",
     "poc:test": "npm run process:fetch && vitest run scripts/poc",
+    "poc:init": "node scripts/poc/init-local.mjs",
+    "poc:dev": "npm run process:fetch && node scripts/poc/server.mjs",
     "coverage": "npm run process:fetch && vitest run --coverage"
   },
   "dependencies": {

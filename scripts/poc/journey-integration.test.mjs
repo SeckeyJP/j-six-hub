@@ -112,7 +112,7 @@ describe("passed artifact validity across real Git commits", () => {
     expect(p3.canTransition).toBe(false);
     expect(p3.missing).toContain("artifact:task_list:unverified");
     const oneTask = "TASK-001: synthetic task\nAC-001: acceptance\nPROP-001: property\n依存: none\n" +
-      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit,lint\n";
+      "allow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n";
     const twoTasks = oneTask + "TASK-002: second task\n";
     files["task-list.md"] = twoTasks;
     files["task-definition.md"] = oneTask;

@@ -1,6 +1,6 @@
 # 要求 Spec — 開発者が J-SIX 全工程を通すローカル Hub PoC
 
-**版**: 0.1 | **日付**: 2026-09-27 | **状態**: 提案中（未実装）
+**版**: 0.1 | **日付**: 2026-09-27 | **状態**: 段階実装中（2026-09-28時点でP0〜P3のlocalhost API・画面まで）
 
 本書は[J-SIXプロセス](https://github.com/SeckeyJP/j-six/blob/main/docs/J-SIX.md)の Phase 0〜6を、単一PCの合成案件で開発者が操作するための要求である。[単一 run の要求](local-execution-requirement-spec.md)を置き換えず、Phase 4 の実行部分に組み込む。現行の[リプレイ要求](requirement-spec.md)と公開 Pages は閲覧専用の説明物として維持する。J-SIX プロセスの正は本体 `docs/J-SIX.md`、機械可読な入力はハッシュ固定した `process/jsix-process.yaml` とする。
 

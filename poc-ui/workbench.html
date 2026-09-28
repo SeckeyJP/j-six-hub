@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="__CSRF__">
+  <title>J-SIX Hub ローカル開発者ワークベンチ</title>
+  <link rel="stylesheet" href="/workbench.css">
+  <script src="/workbench.js" defer></script>
+</head>
+<body>
+  <header><h1>J-SIX Hub <span>ローカルPoC</span></h1><p>合成案件の工程操作。判断は単一利用者によるローカル模擬であり、顧客承認ではありません。</p></header>
+  <nav aria-label="画面"><button id="show-workbench" type="button">開発者ワークベンチ</button><button id="show-monitor" type="button">中央監視</button><button id="refresh" type="button">Git台帳から再読込</button></nav>
+  <p id="status" role="status" aria-live="polite">読み込み中</p>
+  <main>
+    <section id="workbench"><div class="columns"><section class="panel"><h2>案件</h2><label for="fixture">合成fixture</label><select id="fixture"></select><button id="create" type="button">案件を作成</button><ul id="projects"></ul></section><section class="panel wide"><h2>現在の作業</h2><div id="detail"><p>案件を選んでください。</p></div></section></div></section>
+    <section id="monitor" hidden><h2>中央監視</h2><p>開発者画面と同じ非公開Git台帳から毎回読み直します。</p><div id="monitor-list"></div></section>
+  </main>
+  <footer>固定合成タスクによる P0〜P6 dry run です。G1/G2と結合シナリオはローカルで実行し、G3は明示省略（最大L3）します。Codex／Claude Code CLIの実行は次段階です。</footer>
+</body>
+</html>

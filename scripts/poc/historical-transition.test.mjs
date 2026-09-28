@@ -97,7 +97,7 @@ describe("passed artifact validity across real Git commits", () => {
     const originalRequirement = files["requirements.md"];
     if (originalRequirement === undefined) throw new Error("fixture requirement missing");
     await writeFile(join(root, "requirements.md"), originalRequirement);
-    const task = "TASK-001: synthetic task\nAC-001: acceptance\nPROP-001: property\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: unit,lint\n";
+    const task = "TASK-001: synthetic task\nAC-001: acceptance\nPROP-001: property\n依存: none\nallow: src/**\ndeny: secrets/**\nhold-out: tests/holdout.test.ts\nrequired-checks: build,typecheck,lint,format,sast,secrets,deps,scope,interface_contract,tests,coverage,mutation,test_tamper,holdout,traceability\n";
     files["task-list.md"] = task; files["task-definition.md"] = task;
     await writeFile(join(root, "task-list.md"), task);
     await writeFile(join(root, "task-definition.md"), task);
