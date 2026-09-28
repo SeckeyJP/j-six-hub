@@ -111,7 +111,10 @@ describe("subscription CLI adapters", () => {
       } });
     const result = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
       prompt: "fixed", confirmation: base.confirmation("codex") });
-    expect(result.state).toBe("held");
+    const stopUnconfirmed = "stopUnconfirmed" in flags && flags.stopUnconfirmed;
+    expect(result.state).toBe(stopUnconfirmed ? "stop_unconfirmed" : "held");
+    if (stopUnconfirmed) expect(result.preflight).toMatchObject({ stopUnconfirmed: true,
+      reason: "process-stop-unconfirmed" });
     expect(calls.some((call) => call.args[0] === "exec")).toBe(false);
   });
 

@@ -239,12 +239,16 @@ export function createCliAdapters(options) {
       env: executionEnvironment(), input: "", timeoutMs: 15_000 });
     const versionOutcome = await versionTask.promise;
     const version = (versionOutcome.stdout + versionOutcome.stderr).trim().slice(0, 120);
+    if (versionOutcome.stopUnconfirmed) return { ok: false, reason: "process-stop-unconfirmed",
+      stopUnconfirmed: true, spawnAllowed: false };
     if (!helperSucceeded(versionOutcome) || !version) return { ok: false, reason: "cli-version-unconfirmed", spawnAllowed: false };
     const authArgs = provider === "codex" ? ["login", "status"] : ["auth", "status", "--json"];
     const auth = runProcess({ executable, args: authArgs, cwd: home,
       env: executionEnvironment(), input: "", timeoutMs: 15_000 });
     const outcome = await auth.promise;
     const normalized = normalizedAuth(provider, outcome.stdout + outcome.stderr);
+    if (outcome.stopUnconfirmed) return { ok: false, reason: "process-stop-unconfirmed",
+      stopUnconfirmed: true, authMethod: normalized.method, spawnAllowed: false };
     if (!helperSucceeded(outcome) || !normalized.authenticated) {
       return { ok: false, reason: "subscription-auth-unconfirmed", authMethod: normalized.method, spawnAllowed: false };
     }
@@ -266,7 +270,7 @@ export function createCliAdapters(options) {
 
   /** @param {{provider:Provider,kind:RunKind,worktree:string,prompt:string,checked:any,timeoutMs?:number,onStart?:(pid:number)=>void|Promise<void>,onController?:(task:ProcessTask)=>void}} input */
   async function runAfterPreflight({ provider, kind, worktree, prompt, checked, timeoutMs = 120_000, onStart, onController }) {
-    if (!checked.ok) return { state: "held", preflight: checked, process: null };
+    if (!checked.ok) return { state: checked.stopUnconfirmed ? "stop_unconfirmed" : "held", preflight: checked, process: null };
     const startedAt = now().toISOString();
     const invocation = command(provider, kind, worktree);
     const task = runProcess({ ...invocation, cwd: worktree, env: executionEnvironment(),

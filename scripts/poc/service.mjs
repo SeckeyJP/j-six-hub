@@ -910,7 +910,7 @@ export function createPocService(config) {
     }
     const privateDir = join(config.ledgerRoot, "private-runs", request.payload.runId);
     await mkdir(privateDir, { recursive: true, mode: 0o700 });
-    if (adapterResult.process?.output) {
+    if (adapterResult.process) {
       await writeFile(join(privateDir, "events.log"), adapterResult.process.output, { mode: 0o600, flag: "wx" });
     }
     const manifest = { schemaVersion: 1, runId: request.payload.runId, requestRecordId: request.recordId,
