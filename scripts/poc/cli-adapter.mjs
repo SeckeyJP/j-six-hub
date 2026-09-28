@@ -59,6 +59,7 @@ export function spawnBounded({ executable, args, cwd, env, input, timeoutMs, onS
   /** @type {import("node:child_process").ChildProcessWithoutNullStreams|null} */ let child = null;
   /** @type {NodeJS.Timeout|undefined} */ let timer;
   /** @type {NodeJS.Timeout|undefined} */ let killTimer;
+  /** @type {NodeJS.Timeout|undefined} */ let verifyTimer;
   /** @type {NodeJS.Timeout|undefined} */ let settleTimer;
   let timedOut = false;
   let cancelled = false;
@@ -66,10 +67,18 @@ export function spawnBounded({ executable, args, cwd, env, input, timeoutMs, onS
   /** @type {(reason:"timeout"|"cancel"|"output")=>void} */ let stop = () => {};
   const promise = new Promise((resolve, reject) => {
     let settled = false; let stdout = Buffer.alloc(0); let stderr = Buffer.alloc(0); let overflow = false;
+    let stopRequested = false;
+    /** @type {number|null} */ let closeCode = null;
+    /** @type {NodeJS.Signals|null} */ let closeSignal = null;
+    const groupAlive = () => {
+      if (!child?.pid) return false;
+      try { process.kill(-child.pid, 0); return true; }
+      catch (error) { return /** @type {NodeJS.ErrnoException} */ (error).code !== "ESRCH"; }
+    };
     /** @param {number|null} code @param {NodeJS.Signals|null} signal @param {boolean=} stopUnconfirmed */
     const finish = (code, signal, stopUnconfirmed = false) => {
       if (settled) return; settled = true;
-      clearTimeout(timer); clearTimeout(killTimer); clearTimeout(settleTimer);
+      clearTimeout(timer); clearTimeout(killTimer); clearTimeout(verifyTimer); clearTimeout(settleTimer);
       resolve({ code, signal, stdout: stdout.toString("utf8"), stderr: stderr.toString("utf8"),
         overflow, timedOut, cancelled, stopUnconfirmed });
     };
@@ -78,13 +87,18 @@ export function spawnBounded({ executable, args, cwd, env, input, timeoutMs, onS
       if (reason === "timeout") timedOut = true;
       if (reason === "cancel") cancelled = true;
       if (reason === "output") outputLimited = true;
+      stopRequested = true;
       try { if (child?.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* already exited */ }
       killTimer ??= setTimeout(() => {
         try { if (child?.pid) process.kill(-child.pid, "SIGKILL"); } catch { /* already exited */ }
+        verifyTimer ??= setTimeout(() => {
+          if (!groupAlive()) finish(closeCode, closeSignal);
+        }, 100);
       }, stopGraceMs);
       settleTimer ??= setTimeout(() => {
         child?.stdin.destroy(); child?.stdout.destroy(); child?.stderr.destroy(); child?.unref();
-        finish(null, null, true);
+        const alive = groupAlive();
+        finish(alive ? null : closeCode, alive ? null : closeSignal, alive);
       }, forceSettleMs);
     };
     stop = requestStop;
@@ -101,13 +115,16 @@ export function spawnBounded({ executable, args, cwd, env, input, timeoutMs, onS
     child.stdout.on("data", (chunk) => collect("stdout", chunk));
     child.stderr.on("data", (chunk) => collect("stderr", chunk));
     child.once("error", (error) => { if (!settled) {
-      settled = true; clearTimeout(timer); clearTimeout(killTimer); clearTimeout(settleTimer); reject(error);
+      settled = true; clearTimeout(timer); clearTimeout(killTimer); clearTimeout(verifyTimer); clearTimeout(settleTimer); reject(error);
     } });
     child.once("spawn", async () => {
       try { await onStart(child?.pid ?? 0); child?.stdin.end(input); }
       catch { requestStop("cancel"); }
     });
-    child.once("close", (code, signal) => finish(code, signal));
+    child.once("close", (code, signal) => {
+      closeCode = code; closeSignal = signal;
+      if (!stopRequested) finish(code, signal);
+    });
     timer = setTimeout(() => requestStop("timeout"), timeoutMs);
   });
   return { promise, cancel() { if (!cancelled) stop("cancel"); } };

@@ -37,14 +37,16 @@ const config = /** @type {any} */ ({ ledgerRoot: join(root, name === "synthetic-
   fixtures: { synthetic: { repo, repoId: "synthetic" } } });
 if (process.argv.includes("--enable-cli")) {
   const home = homedir();
-  const files = [join(home, ".claude/settings.json"), join(home, ".codex/hooks.json"),
-    join(home, ".codex/config.toml"), join(home, ".claude/scripts/deny_check.py")];
+  const files = [join(home, ".claude/CLAUDE.md"), join(home, ".codex/AGENTS.md"),
+    join(home, ".claude/settings.json"), join(home, ".codex/hooks.json"),
+    join(home, ".codex/config.toml"), join(home, ".claude/scripts/deny-check.sh"),
+    join(home, ".claude/scripts/deny_check.py")];
   const bodies = await Promise.all(files.map((path) => readFile(path)));
   config.cli = { executables: { codex: join(home, ".local/bin/codex"),
     claude: join(home, ".npm-global/bin/claude") }, controls: { files: files.map((path, index) => ({
     path, sha256: createHash("sha256").update(bodies[index] ?? Buffer.alloc(0)).digest("hex") })),
-  codexTrusted: /^\[hooks\.state\]$/m.test((bodies[2] ?? Buffer.alloc(0)).toString("utf8")) &&
-    (bodies[2] ?? Buffer.alloc(0)).includes(".codex/hooks.json") },
+  codexTrusted: /^\[hooks\.state\]$/m.test((bodies[4] ?? Buffer.alloc(0)).toString("utf8")) &&
+    (bodies[4] ?? Buffer.alloc(0)).includes(".codex/hooks.json") },
   retention: { privateRunLogsDays: 7, deleteOnProjectRemoval: true,
     missingEvidenceState: "unknown" } };
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -138,6 +138,32 @@ describe("subscription CLI adapters", () => {
       call.env.HOME === root && call.env.CUSTOM_ACCESS_TOKEN === undefined && call.env.FEATURE_FLAG === undefined)).toBe(true);
   });
 
+  it.each(["machine instruction", "hook launcher"])("rechecks changed %s before the edit workload", async (_label) => {
+    const base = await fixture();
+    const instruction = join(base.root, "AGENTS.md"); const launcher = join(base.root, "deny-check.sh");
+    await writeFile(instruction, "fixed instruction\n"); await writeFile(launcher, "fixed launcher\n");
+    /** @type {any[]} */ const calls = [];
+    const controls = [instruction, launcher].map((path) => ({ path,
+      sha256: sha(path === instruction ? "fixed instruction\n" : "fixed launcher\n") }));
+    const adapters = createCliAdapters({ executables: { codex: join(base.root, "codex"), claude: join(base.root, "claude") },
+      controls: { files: controls, codexTrusted: true }, env: {}, home: base.root,
+      now: () => new Date("2026-09-28T03:00:00Z"), runProcess(input) {
+        calls.push(input); const output = input.args[0] === "--version" ? "codex-cli 0.test" :
+          input.args[0] === "login" ? "Logged in using ChatGPT" :
+            '{"type":"thread.started"}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n';
+        return { promise: Promise.resolve({ code: 0, signal: null, stdout: output, stderr: "",
+          overflow: false, timedOut: false, cancelled: false }), cancel() {} };
+      } });
+    const smoke = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
+      prompt: "fixed", confirmation: base.confirmation("codex") });
+    expect(smoke.state).toBe("succeeded");
+    await writeFile(_label === "machine instruction" ? instruction : launcher, "changed\n");
+    const edit = await adapters.run({ provider: "codex", kind: "edit", worktree: base.root,
+      prompt: "fixed", confirmation: base.confirmation("codex") });
+    expect(edit.state).toBe("held"); expect(edit.preflight.reason).toMatch(/^control-hash-changed:/);
+    expect(calls).toHaveLength(3);
+  });
+
   it("escalates a timeout to SIGKILL and settles within a finite grace", async () => {
     const started = Date.now();
     const task = spawnBounded({ executable: process.execPath,
@@ -145,6 +171,23 @@ describe("subscription CLI adapters", () => {
       env: { PATH: process.env.PATH }, input: "", timeoutMs: 50 });
     const result = await task.promise;
     expect(result.timedOut).toBe(true); expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("kills a SIGTERM-resistant descendant after the direct child exits", async () => {
+    const root = await mkdtemp(join(tmpdir(), "jsix-cli-group-")); roots.push(root);
+    const pidFile = join(root, "descendant.pid");
+    const descendant = "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
+    const parent = `const{spawn}=require('node:child_process');const fs=require('node:fs');` +
+      `const c=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'});` +
+      `fs.writeFileSync(${JSON.stringify(pidFile)},String(c.pid));setInterval(()=>{},1000);`;
+    const task = spawnBounded({ executable: process.execPath, args: ["-e", parent], cwd: root,
+      env: { PATH: process.env.PATH }, input: "", timeoutMs: 100 });
+    const result = await task.promise;
+    const descendantPid = Number(await readFile(pidFile, "utf8"));
+    let alive = true;
+    try { process.kill(descendantPid, 0); } catch { alive = false; }
+    if (alive) process.kill(descendantPid, "SIGKILL");
+    expect(result.timedOut).toBe(true); expect(result.stopUnconfirmed).toBe(false); expect(alive).toBe(false);
   });
 
   it("bounds explicit cancellation and output overflow", async () => {

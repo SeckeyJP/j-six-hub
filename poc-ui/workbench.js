@@ -1,3 +1,5 @@
+import { canCancelCliRun } from "/run-state.mjs";
+
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const byId = (id) => document.getElementById(id);
 let listing;
@@ -222,7 +224,7 @@ function renderDetail() {
       const runs = element("ul");
       for (const item of project.cli.runs) {
         const row = element("li", `${item.provider} / ${item.kind}: ${item.state} · run ${item.runId}`, "code");
-        if (["unknown", "cancel_requested"].includes(item.state)) {
+        if (canCancelCliRun(item.state)) {
           const cancel = element("button", "取消を要求"); cancel.type = "button";
           cancel.addEventListener("click", async () => { try { await command("cli-cancel", { ...common(project), runId: item.runId }); await refresh(); }
             catch (error) { showStatus(error.message, true); } }); row.append(" ", cancel);
