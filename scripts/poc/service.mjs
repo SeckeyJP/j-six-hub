@@ -874,7 +874,7 @@ export function createPocService(config) {
           } catch (error) { startError = error instanceof Error ? error.message : "start-record-failed"; throw error; }
         },
         onController: (/** @type {any} */ controller) => activeCli.set(request.payload.runId, controller) }) :
-        { state: "held", preflight, process: null };
+        { state: preflight.stopUnconfirmed ? "stop_unconfirmed" : "held", preflight, process: null };
     } finally { activeCli.delete(request.payload.runId); }
     let finalState = adapterResult.state;
     let run = null; let inspected = null; let stopReason = startError ?? adapterResult.preflight?.reason ??
