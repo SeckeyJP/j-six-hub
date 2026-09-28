@@ -31,7 +31,8 @@
 - 検査境界: 候補実行の前後で可視テスト・hold-outのhashとclean treeを照合し、実行時改変を拒否する。version/auth補助processもtimeout・cancel・出力超過・停止未確認のない正常終了だけをpreflight成功とする。
 - smoke境界: 未コミット差分だけでなく対象HEADの変更も拒否する。画面は実行状態・証跡欠落を区別し、正規化した停止理由を表示する。
 - 補助process・空ログ境界: version/authの停止未確認を全案件共通の `stop_unconfirmed` へ伝播し、回収したprocess結果は空出力でもmode 0600のログを保存する。
-- `typecheck`、`lint`、`build` が通過した。service/server以外41ファイル329件が通過した。再起動後の状態回帰とsmoke中commit拒否は各対象1件が通過し、他のserviceテストは各実行でskipした。
+- 検査完了境界: coverage・hold-out実行後にも保護テストhashとclean treeを再照合する。CLIの成功終端はイベント列の末尾に限定し、終端後に始まる未完了turnを拒否する。
+- `typecheck`、`lint`、`build` が通過した。service/server以外41ファイル330件が通過した。再起動後の状態回帰とsmoke中commit拒否は各対象1件が通過し、他のserviceテストは各実行でskipした。
 - 条件付きcoverageは修正前のservice/server除外結果で statements 63.22%、branches 52.34%、functions 68.98%、lines 64.32%。除外したservice/serverを0%として含むため、プロジェクト品質閾値には使わない。対象を含むserviceテスト結果を別に記録する。
 - Codex実session: ChatGPT認証、固定CLI、禁止環境変数なし、共通制御hash一致を確認後、読取smokeを1回だけ要求・起動した。管理サンドボックス内でCodex app-server初期化が `Operation not permitted` となり `failed`。同一案件世代では再試行せず、編集runも起動していない。
 - Claude Code実session: 利用者はsubscription枠と追加クレジット不使用を確認したが、CLIの `auth status` が未ログインだったためpreflightで `subscription-auth-unconfirmed` とし、要求保存・process起動とも0件にした。

@@ -138,6 +138,7 @@ describe("subscription CLI adapters", () => {
     ["broken JSON", '{"type":"thread.started"}\nnot-json\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n', "invalid_events"],
     ["unknown event", '{"type":"thread.started"}\n{"type":"invented"}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n', "invalid_events"],
     ["missing terminal", '{"type":"thread.started"}\n', "invalid_events"],
+    ["event after terminal", `{"type":"thread.started"}\n${codexSummaryEvent}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n{"type":"turn.started"}\n`, "invalid_events"],
   ])("rejects %s instead of trusting output text", async (_label, workload, expected) => {
     const base = await fixture();
     /** @type {any[]} */ const calls = [];

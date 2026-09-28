@@ -176,6 +176,7 @@ function validateEvents(provider, stdout, kind) {
       typeof event.session_id === "string" && typeof event.result === "string");
   const failed = events.some((event) => event.type === "error" || event.type === "turn.failed" ||
     event.type === "result" && (event.is_error === true || event.subtype === "error"));
+  const terminalIsLast = terminal.length === 1 && events.at(-1) === terminal[0];
   const hookObserved = kind !== "smoke" || events.some(provider === "codex" ? codexHookDenied : claudeHookDenied);
   let smokeResultValid = true;
   if (kind === "smoke") {
@@ -192,8 +193,9 @@ function validateEvents(provider, stdout, kind) {
     if (!identifiers.sessionId && typeof (event.thread_id ?? event.session_id) === "string") identifiers.sessionId = event.thread_id ?? event.session_id;
     if (!identifiers.model && typeof event.model === "string") identifiers.model = event.model;
   }
-  return { ok: lines.length > 0 && terminal.length === 1 && !failed && smokeResultValid, reason: failed ? "provider-error" :
-    terminal.length !== 1 ? "terminal-event-missing-or-duplicate" : !smokeResultValid ? "smoke-result-invalid" : null,
+  return { ok: lines.length > 0 && terminal.length === 1 && terminalIsLast && !failed && smokeResultValid, reason: failed ? "provider-error" :
+    terminal.length !== 1 ? "terminal-event-missing-or-duplicate" : !terminalIsLast ? "event-after-terminal" :
+      !smokeResultValid ? "smoke-result-invalid" : null,
   count: events.length, hookObserved, identifiers };
 }
 

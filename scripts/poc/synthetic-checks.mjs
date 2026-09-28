@@ -176,9 +176,19 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
   const coverage = run(worktree, process.execPath, ["--experimental-test-coverage", "--test",
     "tests/approval.test.mjs", "tests/holdout.test.mjs"]);
   const coverageRow = /all files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/.exec(coverage.output);
-  const coverageOk = coverage.ok && !!coverageRow && Number(coverageRow[1]) >= 80 && Number(coverageRow[2]) >= 75;
+  const protectedAfterCoverage = sha(readFileSync(join(worktree, "tests/approval.test.mjs"))) === sha(unit) &&
+    sha(readFileSync(join(worktree, "tests/holdout.test.mjs"))) === sha(holdout) &&
+    git(worktree, ["status", "--porcelain"]) === "";
+  const coverageOk = coverage.ok && protectedAfterCoverage && !!coverageRow &&
+    Number(coverageRow[1]) >= 80 && Number(coverageRow[2]) >= 75;
   record("G2", "coverage", coverageOk ? "passed" : "failed", coverage.output,
     "node --experimental-test-coverage --test tests/approval.test.mjs tests/holdout.test.mjs", "node");
+  if (!protectedAfterCoverage) {
+    for (const id of localPolicy.requiredCheckIds.slice(checks.length)) {
+      record("G2", id, "not_run", "Blocked because coverage execution changed protected tests.", "not run");
+    }
+    return { candidateCommit: candidate.candidateCommit, checks };
+  }
   const mutationRoot = await mkdtemp(join(tmpdir(), "jsix-mutation-"));
   let mutant;
   try {
@@ -201,7 +211,10 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
   record("G2", "test_tamper", holdoutSame && redSame ? "passed" : "failed",
     `holdoutUnchanged=${holdoutSame}; redTestUnchanged=${redSame}`, "git blob identity checks", "git");
   const holdoutTest = run(worktree, process.execPath, ["--test", "tests/holdout.test.mjs"]);
-  record("G2", "holdout", holdoutTest.ok ? "passed" : "failed", holdoutTest.output,
+  const protectedAfterHoldout = sha(readFileSync(join(worktree, "tests/approval.test.mjs"))) === sha(unit) &&
+    sha(readFileSync(join(worktree, "tests/holdout.test.mjs"))) === sha(holdout) &&
+    git(worktree, ["status", "--porcelain"]) === "";
+  record("G2", "holdout", holdoutTest.ok && protectedAfterHoldout ? "passed" : "failed", holdoutTest.output,
     "node --test tests/holdout.test.mjs", "node");
   const traceIds = ["REQ-001", "PROP-001"];
   const traceOk = traceIds.every((id) => requirementSpec.includes(id) &&
