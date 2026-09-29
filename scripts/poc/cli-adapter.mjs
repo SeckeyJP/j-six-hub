@@ -222,41 +222,62 @@ export function createCliAdapters(options) {
 
   /** @param {Provider} provider @param {any} confirmation */
   async function preflight(provider, confirmation) {
-    const definition = definitions[provider];
-    if (!definition) return { ok: false, reason: "unknown-provider", spawnAllowed: false };
-    const executable = options.executables[provider];
-    if (!executable || basename(executable) !== definition.executableName) return { ok: false, reason: "executable-not-fixed", spawnAllowed: false };
-    try { await realpath(executable); } catch { return { ok: false, reason: "executable-unreadable", spawnAllowed: false }; }
-    const present = forbiddenEnv[provider].filter((/** @type {string} */ name) => Object.hasOwn(sourceEnv, name));
-    if (present.length) return { ok: false, reason: "api-or-provider-environment-present", present, spawnAllowed: false };
-    const controls = await inspectControls(provider);
-    if (!controls.ok) return { ok: false, reason: controls.reason, spawnAllowed: false };
-    const confirmedAt = Date.parse(confirmation?.confirmedAt ?? "");
-    const age = now().getTime() - confirmedAt;
-    if (confirmation?.provider !== provider || confirmation?.subscriptionOnly !== true ||
-      confirmation?.additionalCreditsDisabled !== true || !Number.isFinite(confirmedAt) || age < 0 || age > confirmationTtlMs) {
-      return { ok: false, reason: "subscription-confirmation-missing-or-expired", spawnAllowed: false };
+    /** Every helper process is kept as an audit entry without its raw output, which may hold account data.
+     * @type {any[]} */
+    const helpers = [];
+    /** @param {string} executable @param {string[]} args */
+    async function helper(executable, args) {
+      const startedAt = now().toISOString();
+      let outcome;
+      try {
+        outcome = await runProcess({ executable, args, cwd: home,
+          env: executionEnvironment(), input: "", timeoutMs: 15_000 }).promise;
+      } catch (error) {
+        helpers.push({ args, startedAt, finishedAt: now().toISOString(), error: "spawn-or-wait-failed" });
+        throw error;
+      }
+      helpers.push({ args, startedAt, finishedAt: now().toISOString(), exitCode: outcome?.code ?? null,
+        signal: outcome?.signal ?? null, timedOut: !!outcome?.timedOut, cancelled: !!outcome?.cancelled,
+        overflow: !!outcome?.overflow, stopUnconfirmed: !!outcome?.stopUnconfirmed,
+        outputBytes: Buffer.byteLength(String(outcome?.stdout ?? "") + String(outcome?.stderr ?? "")) });
+      return outcome;
     }
-    const versionTask = runProcess({ executable, args: ["--version"], cwd: home,
-      env: executionEnvironment(), input: "", timeoutMs: 15_000 });
-    const versionOutcome = await versionTask.promise;
-    const version = (versionOutcome.stdout + versionOutcome.stderr).trim().slice(0, 120);
-    if (versionOutcome.stopUnconfirmed) return { ok: false, reason: "process-stop-unconfirmed",
-      stopUnconfirmed: true, spawnAllowed: false };
-    if (!helperSucceeded(versionOutcome) || !version) return { ok: false, reason: "cli-version-unconfirmed", spawnAllowed: false };
-    const authArgs = provider === "codex" ? ["login", "status"] : ["auth", "status", "--json"];
-    const auth = runProcess({ executable, args: authArgs, cwd: home,
-      env: executionEnvironment(), input: "", timeoutMs: 15_000 });
-    const outcome = await auth.promise;
-    const normalized = normalizedAuth(provider, outcome.stdout + outcome.stderr);
-    if (outcome.stopUnconfirmed) return { ok: false, reason: "process-stop-unconfirmed",
-      stopUnconfirmed: true, authMethod: normalized.method, spawnAllowed: false };
-    if (!helperSucceeded(outcome) || !normalized.authenticated) {
-      return { ok: false, reason: "subscription-auth-unconfirmed", authMethod: normalized.method, spawnAllowed: false };
+    const result = await checks();
+    return { ...result, helpers };
+
+    async function checks() {
+      const definition = definitions[provider];
+      if (!definition) return { ok: false, reason: "unknown-provider", spawnAllowed: false };
+      const executable = options.executables[provider];
+      if (!executable || basename(executable) !== definition.executableName) return { ok: false, reason: "executable-not-fixed", spawnAllowed: false };
+      try { await realpath(executable); } catch { return { ok: false, reason: "executable-unreadable", spawnAllowed: false }; }
+      const present = forbiddenEnv[provider].filter((/** @type {string} */ name) => Object.hasOwn(sourceEnv, name));
+      if (present.length) return { ok: false, reason: "api-or-provider-environment-present", present, spawnAllowed: false };
+      const controls = await inspectControls(provider);
+      if (!controls.ok) return { ok: false, reason: controls.reason, spawnAllowed: false };
+      const confirmedAt = Date.parse(confirmation?.confirmedAt ?? "");
+      const age = now().getTime() - confirmedAt;
+      if (confirmation?.provider !== provider || confirmation?.subscriptionOnly !== true ||
+        confirmation?.additionalCreditsDisabled !== true || !Number.isFinite(confirmedAt) || age < 0 || age > confirmationTtlMs) {
+        return { ok: false, reason: "subscription-confirmation-missing-or-expired", spawnAllowed: false };
+      }
+      const versionOutcome = await helper(executable, ["--version"]);
+      const version = (versionOutcome.stdout + versionOutcome.stderr).trim().slice(0, 120);
+      if (versionOutcome.stopUnconfirmed) return { ok: false, reason: "process-stop-unconfirmed",
+        stopUnconfirmed: true, spawnAllowed: false };
+      if (!helperSucceeded(versionOutcome) || !version) return { ok: false, reason: "cli-version-unconfirmed", spawnAllowed: false };
+      const authArgs = provider === "codex" ? ["login", "status"] : ["auth", "status", "--json"];
+      const outcome = await helper(executable, authArgs);
+      const normalized = normalizedAuth(provider, outcome.stdout + outcome.stderr);
+      if (outcome.stopUnconfirmed) return { ok: false, reason: "process-stop-unconfirmed",
+        stopUnconfirmed: true, authMethod: normalized.method, spawnAllowed: false };
+      if (!helperSucceeded(outcome) || !normalized.authenticated) {
+        return { ok: false, reason: "subscription-auth-unconfirmed", authMethod: normalized.method, spawnAllowed: false };
+      }
+      return { ok: true, reason: null, spawnAllowed: true, provider, adapterId: definition.adapterId,
+        executableVersion: version, authMethod: normalized.method, environmentPresent: [],
+        controls: "matched", confirmation: "operator-asserted", checkedAt: now().toISOString() };
     }
-    return { ok: true, reason: null, spawnAllowed: true, provider, adapterId: definition.adapterId,
-      executableVersion: version, authMethod: normalized.method, environmentPresent: [],
-      controls: "matched", confirmation: "operator-asserted", checkedAt: now().toISOString() };
   }
 
   /** @param {Provider} provider @param {RunKind} kind @param {string} worktree */

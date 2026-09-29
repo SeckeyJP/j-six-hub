@@ -32,6 +32,7 @@
 - smoke境界: 未コミット差分だけでなく対象HEADの変更も拒否する。画面は実行状態・証跡欠落を区別し、正規化した停止理由を表示する。
 - 補助process・空ログ境界: version/authの停止未確認を全案件共通の `stop_unconfirmed` へ伝播し、回収したprocess結果は空出力でもmode 0600のログを保存する。
 - 検査完了境界: coverage・hold-out実行後にも保護テストhashとclean treeを再照合する。CLIの成功終端はイベント列の末尾に限定し、終端後に始まる未完了turnを拒否する。
+- 補助process監査: preflightで起動したversion／auth statusの各processについて、引数、開始・終了時刻、終了code、signal、timeout・cancel・出力超過・停止未確認の有無、出力byte数を非公開manifestの `preflight.helpers` に保存する。生の出力はaccount情報を含み得るため保存しない。spawn・待機自体が失敗した場合もその呼出しを記録する（2026-09-30）。
 - 復旧境界: Hub再起動後の未確定runと停止未確認runに、記録pid・process groupの不在、対象repoのclean／投入時commit一致、残存worktreeのHEAD・差分をHubが照合し、操作者の停止・外部作用確認と理由を伴う `cli.run_recovered` を追記する操作を設けた。履歴は保持し、復旧後だけ全案件の投入保留と差戻し拒否を解除する。復旧したrunの世代はCLI証跡の不足として残し、差戻し後の新世代で再開する（2026-09-29）。
 - `typecheck`、`lint`、`build` が通過した。service/server以外41ファイル330件が通過した。再起動後の状態回帰とsmoke中commit拒否は各対象1件が通過し、他のserviceテストは各実行でskipした。
 - 条件付きcoverageは修正前のservice/server除外結果で statements 63.22%、branches 52.34%、functions 68.98%、lines 64.32%。除外したservice/serverを0%として含むため、プロジェクト品質閾値には使わない。対象を含むserviceテスト結果を別に記録する。

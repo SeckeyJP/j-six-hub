@@ -55,6 +55,14 @@ describe("subscription CLI adapters", () => {
     expect(calls[2].shell).not.toBe(true);
     expect(calls[2].env.CUSTOM_ACCESS_TOKEN).toBeUndefined();
     expect(result.process?.outputSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.preflight.helpers).toHaveLength(2);
+    expect(result.preflight.helpers.map((/** @type {any} */ item) => item.args)).toEqual([calls[0].args, calls[1].args]);
+    for (const item of result.preflight.helpers) {
+      expect(item).toMatchObject({ exitCode: 0, signal: null, timedOut: false, cancelled: false, overflow: false,
+        stopUnconfirmed: false });
+      expect(item.outputBytes).toBeGreaterThan(0);
+      expect(Object.keys(item)).not.toContain("stdout");
+    }
   });
 
   it.each([
@@ -115,6 +123,9 @@ describe("subscription CLI adapters", () => {
     expect(result.state).toBe(stopUnconfirmed ? "stop_unconfirmed" : "held");
     if (stopUnconfirmed) expect(result.preflight).toMatchObject({ stopUnconfirmed: true,
       reason: "process-stop-unconfirmed" });
+    expect(result.preflight.helpers).toHaveLength(unhealthyStage === "version" ? 1 : 2);
+    expect(result.preflight.helpers.at(-1)).toMatchObject({ args: unhealthyStage === "version" ? ["--version"] : ["login", "status"],
+      ...Object.fromEntries(Object.entries(flags).map(([key, value]) => [key === "code" ? "exitCode" : key, value])) });
     expect(calls.some((call) => call.args[0] === "exec")).toBe(false);
   });
 

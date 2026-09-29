@@ -153,6 +153,8 @@ describe("localhost service commands", () => {
       process: { eventValidation: null, stopUnconfirmed: false }, result: { state: "succeeded" } });
     expect(manifest.startRecordId).toMatch(/^[0-9a-f-]{36}$/);
     expect(manifest.promptSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(manifest.preflight.helpers.map((/** @type {any} */ item) => [item.args, item.exitCode]))
+      .toEqual([[["--version"], 0], [["login", "status"], 0]]);
     const log = readFileSync(logPath);
     await unlink(logPath);
     const missingEvidence = await service.detail(id);
