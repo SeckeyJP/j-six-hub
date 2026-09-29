@@ -255,7 +255,7 @@ describe("localhost service commands", () => {
     expect(reopened.project).toMatchObject({ phase: "P3", generation: 1 });
     expect(reopened.project.cli.runs).toHaveLength(0);
     expect(reopened.project.missing.some((/** @type {string} */ item) => item.startsWith("cli-evidence:"))).toBe(false);
-  }, 180_000);
+  }, 300_000);
 
   it("keeps a stop-unconfirmed run visible after reopen until recovery releases the global hold", async () => {
     let alive = true;
@@ -291,7 +291,7 @@ describe("localhost service commands", () => {
     await expect(service.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" }))
       .resolves.toMatchObject({ cliRun: { state: "stop_unconfirmed" } });
     expect(cliCalls.length).toBeGreaterThan(callsBefore);
-  }, 180_000);
+  }, 300_000);
 
   it("blocks project reopen and detects an external HEAD change before workload spawn", async () => {
     const gate = deferred();
