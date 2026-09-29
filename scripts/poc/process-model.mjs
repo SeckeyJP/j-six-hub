@@ -5,7 +5,7 @@ const supportedKinds = new Set([
   "gate.local_decision", "phase.transitioned", "phase.reopened",
   "task.run_requested", "task.run_inspected", "task.accept_requested", "task.candidate_accepted",
   "cli.subscription_confirmed", "cli.run_requested", "cli.run_claimed", "cli.run_started",
-  "cli.cancel_requested", "cli.run_finished",
+  "cli.cancel_requested", "cli.run_finished", "cli.run_recovered",
   "quality.check_requested", "deliverables.requested", "deliverables.generated", "phase.completed",
 ]);
 
@@ -144,7 +144,9 @@ function projectPosition(records, model, snapshot) {
         typeof record.payload?.runId !== "string" || !record.payload.runId)) {
       throw new Error("合成runのPhase・世代・IDが不正です");
     }
-    if (record.kind.startsWith("cli.") && (phase !== "P4" || record.payload?.phase !== "P4" ||
+    if (record.kind === "cli.run_recovered" && (record.payload?.phase !== phase ||
+      record.payload?.generation !== generation)) throw new Error("CLI復旧recordのPhase・世代が不正です");
+    if (record.kind.startsWith("cli.") && record.kind !== "cli.run_recovered" && (phase !== "P4" || record.payload?.phase !== "P4" ||
       record.payload?.generation !== generation)) throw new Error("CLI recordのPhase・世代が不正です");
     if (record.kind === "quality.check_requested" &&
       (phase !== "P5" || record.payload?.phase !== phase || record.payload?.generation !== generation)) {

@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPocService } from "./service.mjs";
+import { readLedger } from "./ledger.mjs";
 import { localPolicySha256 } from "./policy.mjs";
 import { syntheticGreenCode } from "./fake-runner.mjs";
 
@@ -22,7 +23,7 @@ function git(repo, args) {
   }).trim();
 }
 
-/** @param {{cli?:boolean,beforeAuth?:()=>Promise<void>,beforeWorkload?:(input:any)=>Promise<void>}} [options] */
+/** @param {{cli?:boolean,beforeAuth?:()=>Promise<void>,beforeWorkload?:(input:any)=>Promise<void>,stopUnconfirmed?:boolean,processAlive?:(pid:number)=>boolean}} [options] */
 async function fixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), "jsix-service-"));
   roots.push(root);
@@ -74,13 +75,13 @@ async function fixture(options = {}) {
           `${JSON.stringify({ type: "thread.started", thread_id: "t-1" })}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: summary } })}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n` :
           `${JSON.stringify({ type: "system", session_id: "s-1" })}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n${JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "s-1", result: summary })}\n`;
         return { code: 0, signal: null, stdout,
-          stderr: "", overflow: false, timedOut: false, cancelled: false }; })();
+          stderr: "", overflow: false, timedOut: false, cancelled: false, stopUnconfirmed: !!options.stopUnconfirmed }; })();
         return { promise, cancel() {} };
       } };
   }
   const service = createPocService({ ledgerRoot, process: processDefinition, fixtures: {
     synthetic: { repo, repoId: "synthetic" },
-  }, cli });
+  }, cli, processAlive: options.processAlive });
   await service.initialize();
   return { repo, ledgerRoot, commit, content, service, cliCalls, cli };
 }
@@ -203,6 +204,94 @@ describe("localhost service commands", () => {
     } finally { gate.resolve(); }
     expect((await running).cliRun.state).toBe("succeeded");
   }, 150_000);
+
+  it("recovers a restarted unresolved run only after Hub rechecks the recorded process and target Git", async () => {
+    const gate = deferred();
+    const { service, commit, content, cliCalls, ledgerRoot, repo, cli } = await fixture({ cli: true,
+      beforeWorkload: () => gate.promise });
+    let current = await advanceToP4(service, commit, content); const id = current.project.projectId;
+    let second = await advanceToP4(service, commit, content, current.head); const secondId = second.project.projectId;
+    current = await service.detail(id);
+    current = await service.confirmSubscription({ ...common(current.head, id, 0, commit), provider: "codex" });
+    const running = service.runCli({ ...common(current.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    let alive = true;
+    const restored = createPocService({ ledgerRoot, process: processDefinition,
+      fixtures: { synthetic: { repo, repoId: "synthetic" } }, cli, processAlive: () => alive });
+    try {
+      await vi.waitFor(() => expect(cliCalls.filter((call) => call.args[0] === "exec")).toHaveLength(1), { timeout: 20_000 });
+      await restored.initialize();
+      const pending = await restored.detail(id);
+      const runId = pending.project.cli.runs.at(-1)?.runId;
+      expect(pending.project.cli.runs.at(-1)?.state).toBe("unknown");
+      const recover = { ...common(pending.head, id, 0, commit), runId, reason: "Synthetic restart: pid gone, worktree kept" };
+      await expect(service.recoverCli({ ...recover, processStopConfirmed: true, externalEffectsReviewed: true }))
+        .rejects.toThrow(/実行中、または解消済み/);
+      await expect(restored.recoverCli({ ...recover, processStopConfirmed: true })).rejects.toThrow(/確認結果/);
+      await expect(restored.recoverCli({ ...recover, processStopConfirmed: true, externalEffectsReviewed: true }))
+        .rejects.toThrow(/まだ存在/);
+      await expect(restored.execute({ type: "phase.reopen", ...common(pending.head, id, 0, commit), phase: "P3",
+        reason: "Synthetic reopen before recovery" })).rejects.toThrow(/未確定/);
+      alive = false;
+      const recovered = await restored.recoverCli({ ...recover, processStopConfirmed: true, externalEffectsReviewed: true });
+      const run = recovered.project.cli.runs.find((/** @type {any} */ item) => item.runId === runId);
+      expect(run).toMatchObject({ state: "recovered", recoveredFrom: "unresolved" });
+      expect(run?.stopReason).toMatch(/pid gone/);
+      expect(recovered.project.missing).toContain(`cli-evidence:${runId}:recovered`);
+      expect(recovered.project.canTransition).toBe(false);
+      const ledger = await readLedger(ledgerRoot);
+      expect(ledger.records.at(-1)).toMatchObject({ kind: "cli.run_recovered", payload: { priorState: "unresolved",
+        processCheck: "recorded-pid-not-running", pid: 12345, worktree: { exists: true, head: commit, dirty: false },
+        target: { commit, clean: true } } });
+      await expect(restored.recoverCli({ ...recover, expectedHead: recovered.head,
+        processStopConfirmed: true, externalEffectsReviewed: true })).rejects.toThrow(/解消済み/);
+    } finally { gate.resolve(); }
+    await expect(running).rejects.toThrow(/不正または重複/);
+    second = await restored.detail(secondId);
+    second = await restored.confirmSubscription({ ...common(second.head, secondId, 0, commit), provider: "claude" });
+    const next = await restored.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" });
+    expect(next.cliRun.state).toBe("succeeded");
+    const reopened = await restored.execute({ type: "phase.reopen", ...common(next.head, id, 0, commit), phase: "P3",
+      reason: "New generation after recorded recovery" });
+    expect(reopened.project).toMatchObject({ phase: "P3", generation: 1 });
+    expect(reopened.project.cli.runs).toHaveLength(0);
+    expect(reopened.project.missing.some((/** @type {string} */ item) => item.startsWith("cli-evidence:"))).toBe(false);
+  }, 180_000);
+
+  it("keeps a stop-unconfirmed run visible after reopen until recovery releases the global hold", async () => {
+    let alive = true;
+    const { service, commit, content, cliCalls } = await fixture({ cli: true, stopUnconfirmed: true,
+      processAlive: () => alive });
+    let current = await advanceToP4(service, commit, content); const id = current.project.projectId;
+    let second = await advanceToP4(service, commit, content, current.head); const secondId = second.project.projectId;
+    current = await service.detail(id);
+    current = await service.confirmSubscription({ ...common(current.head, id, 0, commit), provider: "codex" });
+    const stopped = await service.runCli({ ...common(current.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(stopped.cliRun.state).toBe("stop_unconfirmed");
+    const runId = stopped.cliRun.runId;
+    current = await service.execute({ type: "phase.reopen", ...common(stopped.head, id, 0, commit), phase: "P3",
+      reason: "Synthetic reopen with an unconfirmed stop" });
+    expect(current.project.cli.runs).toMatchObject([{ runId, state: "stop_unconfirmed", generation: 0 }]);
+    expect(current.project.missing).toContain(`cli-evidence:${runId}:stop_unconfirmed`);
+    second = await service.detail(secondId);
+    second = await service.confirmSubscription({ ...common(second.head, secondId, 0, commit), provider: "claude" });
+    await expect(service.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" }))
+      .rejects.toThrow(/回数上限/);
+    current = await service.detail(id);
+    const recover = { ...common(current.head, id, 1, commit), runId, processStopConfirmed: true,
+      externalEffectsReviewed: true, reason: "Process group checked after timeout" };
+    await expect(service.recoverCli(recover)).rejects.toThrow(/まだ存在/);
+    alive = false;
+    current = await service.recoverCli(recover);
+    expect(current.project).toMatchObject({ phase: "P3", generation: 1 });
+    expect(current.project.cli.runs).toHaveLength(0);
+    expect(current.project.missing.some((/** @type {string} */ item) => item.startsWith("cli-evidence:"))).toBe(false);
+    second = await service.detail(secondId);
+    second = await service.confirmSubscription({ ...common(second.head, secondId, 0, commit), provider: "claude" });
+    const callsBefore = cliCalls.length;
+    await expect(service.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" }))
+      .resolves.toMatchObject({ cliRun: { state: "stop_unconfirmed" } });
+    expect(cliCalls.length).toBeGreaterThan(callsBefore);
+  }, 180_000);
 
   it("blocks project reopen and detects an external HEAD change before workload spawn", async () => {
     const gate = deferred();

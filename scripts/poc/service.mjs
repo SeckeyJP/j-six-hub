@@ -44,16 +44,34 @@ function recordsFor(records, projectId) {
   return records.filter((record) => record.projectId === projectId);
 }
 
+/** @param {any[]} records @param {string} runId */
+function recoveredCliRun(records, runId) {
+  return records.find((record) => record.kind === "cli.run_recovered" && record.payload?.runId === runId);
+}
+
 /** @param {any[]} records @param {string=} exceptRunId */
 function unresolvedCliRequest(records, exceptRunId) {
   return records.find((record) => record.kind === "cli.run_requested" &&
     record.payload?.runId !== exceptRunId && !records.some((item) => item.kind === "cli.run_finished" &&
-      item.payload?.runId === record.payload?.runId));
+      item.payload?.runId === record.payload?.runId) && !recoveredCliRun(records, record.payload?.runId));
 }
 
 /** @param {any[]} records */
 function unconfirmedCliStop(records) {
-  return records.find((record) => record.kind === "cli.run_finished" && record.payload?.state === "stop_unconfirmed");
+  return records.find((record) => record.kind === "cli.run_finished" && record.payload?.state === "stop_unconfirmed" &&
+    !recoveredCliRun(records, record.payload?.runId));
+}
+
+/** A recorded pid or its process group still exists; EPERM also means it exists.
+ * @param {number} pid
+ */
+function processAlive(pid) {
+  for (const target of [pid, -pid]) {
+    try { process.kill(target, 0); return true; } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EPERM") return true;
+    }
+  }
+  return false;
 }
 
 /** @param {any[]} records @param {string} kind @param {string} phase @param {number} generation */
@@ -213,6 +231,9 @@ function activityFor(records, projection, process) {
     if (record.kind === "cli.run_finished") return [{ ...base, kind: "cli",
       phase: "P4", runId: payload.runId, provider: payload.provider, runKind: payload.kind,
       state: payload.state, adapterId: payload.adapterId, outputSha256: payload.outputSha256 }];
+    if (record.kind === "cli.run_recovered") return [{ ...base, kind: "cli",
+      phase: payload.phase, runId: payload.runId, provider: payload.provider, runKind: payload.kind,
+      state: "recovered", priorState: payload.priorState, reason: payload.reason }];
     if (record.kind === "task.candidate_accepted") return [{ ...base, kind: "candidate",
       phase: "P4", runId: payload.runId, targetCommit: payload.evidenceCommit }];
     if (record.kind === "gate.check_recorded" && ["G3", "G4", "acceptance"].includes(payload.layerId)) {
@@ -266,7 +287,9 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
   const inspected = latest(projectRecords, "task.run_inspected", "P4", projection.generation);
   const accepted = latest(projectRecords, "task.candidate_accepted", "P4", projection.generation);
   const cliRequests = projectRecords.filter((item) => item.kind === "cli.run_requested" &&
-    item.payload?.generation === projection.generation);
+    (item.payload?.generation === projection.generation ||
+      unresolvedCliRequest(projectRecords.filter((other) => other.payload?.runId === item.payload?.runId)) ||
+      unconfirmedCliStop(projectRecords.filter((other) => other.payload?.runId === item.payload?.runId))));
   const cliRuns = cliRequests.map((request) => {
     const result = projectRecords.find((item) => item.kind === "cli.run_finished" &&
       item.payload?.runId === request.payload.runId);
@@ -276,6 +299,7 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
       item.payload?.runId === request.payload.runId);
     const cancelled = projectRecords.some((item) => item.kind === "cli.cancel_requested" &&
       item.payload?.runId === request.payload.runId);
+    const recovered = recoveredCliRun(projectRecords, request.payload.runId);
     let evidenceValid = true;
     if (result) {
       try {
@@ -285,13 +309,14 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
       } catch { evidenceValid = false; }
     }
     return { runId: request.payload.runId, provider: request.payload.provider, kind: request.payload.kind,
-      requestedAt: request.recordedAt, state: !evidenceValid ? "evidence_unknown" :
+      generation: request.payload.generation, requestedAt: request.recordedAt, state: !evidenceValid ? "evidence_unknown" : recovered ? "recovered" :
         result?.payload.state ?? (cancelled ? "cancel_requested" : started ?
           activeRunIds.has(request.payload.runId) ? "started" : "unknown" : claimed ? "claimed" : "unknown"),
       adapterId: result?.payload.adapterId ?? request.payload.adapterId,
       outputSha256: result?.payload.outputSha256 ?? null, eventCount: result?.payload.eventCount ?? null,
       manifestSha256: result?.payload.manifestSha256 ?? null,
-      stopReason: result?.payload.stopReason ?? (result ? null : started ? "起動済みの停止・結果を照合してください" :
+      recoveredFrom: recovered?.payload.priorState ?? null,
+      stopReason: recovered ? `復旧記録: ${recovered.payload.reason}` : result?.payload.stopReason ?? (result ? null : started ? "起動済みの停止・結果を照合してください" :
         claimed ? "投入claim済みの外部作用を照合してください" : "Hub再起動時は自動再投入しません") };
   });
   const cliEvidenceGaps = cliRuns.filter((item) => item.state !== "succeeded")
@@ -333,13 +358,14 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
 }
 
 /** A domain entry point shared by the browser API and future terminal commands. */
-/** @param {{ledgerRoot:string,process:any,fixtures:Record<string,{repo:string,repoId:string}>,cli?:any}} config */
+/** @param {{ledgerRoot:string,process:any,fixtures:Record<string,{repo:string,repoId:string}>,cli?:any,processAlive?:(pid:number)=>boolean}} config */
 export function createPocService(config) {
   validateProcess(config.process, config.process?._source?.sha256);
   if (!config.ledgerRoot || !config.fixtures || !Object.keys(config.fixtures).length) throw new Error("PoC設定が不足しています");
   const fixtures = Object.entries(config.fixtures);
   const cliAdapters = config.cli ? createCliAdapters(config.cli) : null;
   const activeCli = new Map();
+  const isProcessAlive = config.processAlive ?? processAlive;
   for (const [fixtureId, fixture] of fixtures) {
     if (!idPattern.test(fixtureId) || !idPattern.test(fixture.repoId) || !fixture.repo) throw new Error("fixture設定が不正です");
   }
@@ -396,14 +422,15 @@ export function createPocService(config) {
       if (typeof projectId !== "string" || !projectId) throw new Error("案件IDが不足しています");
       const pendingCli = unresolvedCliRequest(state.records);
       const lifecycleTypes = new Set(["cli.run_claim", "cli.run_start", "cli.cancel_request", "cli.run_result",
-        "task.cli_result", "task.check_record", "task.g3_omit"]);
+        "task.cli_result", "task.check_record", "task.g3_omit", "cli.run_recover"]);
       if (pendingCli && (!lifecycleTypes.has(command.type) || command.runId !== pendingCli.payload.runId)) {
         throw new Error("未確定のCLI runがあるため、停止・結果照合まで他の操作を開始できません");
       }
       const projectRecords = recordsFor(state.records, projectId);
       const current = currentProjection(config, state.records, projectId, false, new Set(activeCli.keys()));
-      if (current.completed && command.type !== "phase.reopen") throw new Error("完了後の操作には差戻しが必要です");
-      if (!writablePhases.has(current.phase) && command.type !== "phase.reopen") {
+      const anyPhase = command.type === "phase.reopen" || command.type === "cli.run_recover";
+      if (current.completed && !anyPhase) throw new Error("完了後の操作には差戻しが必要です");
+      if (!writablePhases.has(current.phase) && !anyPhase) {
         throw new Error("このPhaseの操作・検査は未実装です");
       }
       if (command.generation !== current.generation) throw new Error("案件世代が古いです");
@@ -505,6 +532,7 @@ export function createPocService(config) {
         const confirmation = request && projectRecords.find((item) => item.recordId === request.payload.confirmationRecordId);
         if (!request || unresolvedCliRequest(state.records, command.runId) ||
           projectRecords.some((item) => item.kind === "cli.run_claimed" && item.payload?.runId === command.runId) ||
+          recoveredCliRun(projectRecords, command.runId) ||
           projectRecords.some((item) => item.kind === "cli.cancel_requested" && item.payload?.runId === command.runId) ||
           projectRecords.some((item) => item.kind === "cli.run_finished" && item.payload?.runId === command.runId) ||
           !confirmation || Date.now() - Date.parse(confirmation.recordedAt) > 5 * 60 * 1000 ||
@@ -526,6 +554,7 @@ export function createPocService(config) {
         if (!request || request.payload?.generation !== current.generation || !claim ||
           claim.payload?.generation !== current.generation || unresolvedCliRequest(state.records, command.runId) ||
           projectRecords.some((item) => item.kind === "cli.run_started" && item.payload?.runId === command.runId) ||
+          recoveredCliRun(projectRecords, command.runId) ||
           projectRecords.some((item) => item.kind === "cli.cancel_requested" && item.payload?.runId === command.runId) ||
           projectRecords.some((item) => item.kind === "cli.run_finished" && item.payload?.runId === command.runId) ||
           !Number.isSafeInteger(command.pid) || command.pid <= 0) throw new Error("CLI起動確認の条件が不正です");
@@ -538,14 +567,14 @@ export function createPocService(config) {
           item.payload?.runId === command.runId && item.payload?.generation === current.generation);
         if (!request || projectRecords.some((item) => item.kind === "cli.run_finished" &&
           item.payload?.runId === command.runId) || projectRecords.some((item) => item.kind === "cli.cancel_requested" &&
-          item.payload?.runId === command.runId)) throw new Error("取消対象runがありません");
+          item.payload?.runId === command.runId) || recoveredCliRun(projectRecords, command.runId)) throw new Error("取消対象runがありません");
         record = { ...common, kind: "cli.cancel_requested", payload: { phase: "P4",
           generation: current.generation, runId: command.runId, reason: "operator-requested",
           policySha256: localPolicySha256 } };
       } else if (command.type === "cli.run_result") {
         const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
           item.payload?.runId === command.runId && item.payload?.generation === current.generation);
-        if (!request || projectRecords.some((item) => item.kind === "cli.run_finished" &&
+        if (!request || recoveredCliRun(projectRecords, command.runId) || projectRecords.some((item) => item.kind === "cli.run_finished" &&
           item.payload?.runId === command.runId) || !["succeeded", "held", "failed", "cancelled", "timed_out",
             "output_limit", "stop_unconfirmed", "invalid_events", "hook_unobserved", "inspection_failed"].includes(command.result?.state) ||
           (command.result?.outputSha256 !== null && !hashPattern.test(command.result?.outputSha256 ?? "")) ||
@@ -559,11 +588,44 @@ export function createPocService(config) {
           manifestSha256: command.result.manifestSha256,
           hookObserved: command.result.hookObserved ?? false, stopReason: command.result.stopReason ?? null,
           candidateCommit: command.result.candidateCommit ?? null, policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.run_recover") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" && item.payload?.runId === command.runId);
+        const finished = request && projectRecords.find((item) => item.kind === "cli.run_finished" &&
+          item.payload?.runId === command.runId);
+        const priorState = !request ? null : !finished ? "unresolved" :
+          finished.payload?.state === "stop_unconfirmed" ? "stop_unconfirmed" : null;
+        if (!priorState || recoveredCliRun(projectRecords, command.runId) || activeCli.has(command.runId)) {
+          throw new Error("復旧対象のCLI runがありません。実行中、または解消済みです");
+        }
+        if (command.processStopConfirmed !== true || command.externalEffectsReviewed !== true) {
+          throw new Error("process停止と外部作用の確認結果が必要です");
+        }
+        const started = projectRecords.find((item) => item.kind === "cli.run_started" && item.payload?.runId === command.runId);
+        const pid = Number.isSafeInteger(started?.payload?.pid) ? started.payload.pid : null;
+        if (pid !== null && isProcessAlive(pid)) throw new Error("記録したCLI processまたはprocess groupがまだ存在します");
+        if (git(fixture.repo, ["status", "--porcelain"])) throw new Error("対象repoに未記録の変更があります。照合してから復旧してください");
+        if (request.payload.generation === current.generation && current.targetCommit !== request.payload.baseCommit) {
+          throw new Error("対象Git commitがrun投入時から変わりました");
+        }
+        const worktreePath = join(config.ledgerRoot, "runs", command.runId);
+        /** @type {{exists:boolean,head:string|null,dirty:boolean|null,statusSha256:string|null}} */
+        let worktree = { exists: false, head: null, dirty: null, statusSha256: null };
+        try {
+          const status = git(worktreePath, ["status", "--porcelain"]);
+          worktree = { exists: true, head: head(worktreePath), dirty: status.length > 0, statusSha256: sha(status) };
+        } catch { /* absent or not a Git worktree */ }
+        record = { ...common, kind: "cli.run_recovered", payload: { phase: current.phase,
+          generation: current.generation, runGeneration: request.payload.generation, runId: command.runId,
+          provider: request.payload.provider, kind: request.payload.kind, priorState,
+          processCheck: pid === null ? "no-recorded-pid" : "recorded-pid-not-running", pid, worktree,
+          target: { commit: current.targetCommit, clean: true },
+          operatorConfirmed: { processStopped: true, externalEffectsReviewed: true },
+          reason: requireText(command.reason, "復旧理由"), policySha256: localPolicySha256 } };
       } else if (command.type === "task.cli_result") {
         const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
           item.payload?.runId === command.runId && item.payload?.kind === "edit" &&
           item.payload?.generation === current.generation);
-        if (!request || command.run?.mode !== "live" || command.run?.runId !== command.runId ||
+        if (!request || recoveredCliRun(projectRecords, command.runId) || command.run?.mode !== "live" || command.run?.runId !== command.runId ||
           command.run?.baseCommit !== current.targetCommit || !commitPattern.test(command.run?.candidateCommit ?? "") ||
           !Array.isArray(command.checks) || command.checks.length !== localPolicy.requiredCheckIds.length ||
           command.checks.some((item) => !["passed", "failed", "not_run"].includes(item.result) ||
@@ -951,6 +1013,14 @@ export function createPocService(config) {
     return saved;
   }
 
+  /** Close an unresolved or stop-unconfirmed run only after Hub rechecks the recorded pid and target Git.
+   * History is kept; the run's generation still needs a reopen before another candidate run.
+   * @param {Record<string,any>} command
+   */
+  async function recoverCli(command) {
+    return execute({ ...command, type: "cli.run_recover" });
+  }
+
   /** @param {Record<string,any>} command */
   async function acceptCandidate(command) {
     const requested = await execute({ ...command, type: "task.accept_request" });
@@ -1052,5 +1122,5 @@ export function createPocService(config) {
   }
 
   return { initialize, list, detail, execute, runFake, confirmSubscription, runCli, cancelCli,
-    acceptCandidate, runIntegration, prepareDeliverables };
+    recoverCli, acceptCandidate, runIntegration, prepareDeliverables };
 }

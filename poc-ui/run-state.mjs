@@ -3,6 +3,13 @@ export function canCancelCliRun(state) {
   return state === "started";
 }
 
+/** Hub rechecks the recorded pid and target Git; a live controller in this process is cancelled instead.
+ * @param {string} state
+ */
+export function canRecoverCliRun(state) {
+  return ["unknown", "claimed", "cancel_requested", "stop_unconfirmed"].includes(state);
+}
+
 /** @param {string} reason */
 export function explainCliEvidence(reason) {
   const [, runId = "不明", state = "unknown"] = reason.split(":");
@@ -21,6 +28,7 @@ export function explainCliEvidence(reason) {
     hook_unobserved: "共通Hook拒否を確認できない",
     output_limit: "CLI出力上限を超過",
     inspection_failed: "候補検査が失敗",
+    recovered: "停止照合後に復旧記録済み。この世代は差戻しが必要",
   };
   return `${messages[state] ?? `CLI状態 ${state}`} (run ${runId})`;
 }
