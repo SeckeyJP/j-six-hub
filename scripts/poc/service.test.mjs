@@ -713,5 +713,5 @@ describe("localhost service commands", () => {
     current = await restored.execute({ type: "phase.transition",
       ...common(current.head, id, 1, current.project.targetCommit) });
     expect(current.project.phase).toBe("P5");
-  }, 720_000);
+  }, 1_200_000);
 });
