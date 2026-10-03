@@ -223,6 +223,8 @@ export function createCliAdapters(options) {
   /** @param {Provider} provider @param {any} confirmation */
   async function preflight(provider, confirmation) {
     /** Every helper process is kept as an audit entry without its raw output, which may hold account data.
+     * A helper whose spawn or wait itself fails is kept as a failed entry and returned as a failed outcome,
+     * so preflight holds the run and the caller still writes the manifest and the ledger result.
      * @type {any[]} */
     const helpers = [];
     /** @param {string} executable @param {string[]} args */
@@ -232,9 +234,11 @@ export function createCliAdapters(options) {
       try {
         outcome = await runProcess({ executable, args, cwd: home,
           env: executionEnvironment(), input: "", timeoutMs: 15_000 }).promise;
-      } catch (error) {
-        helpers.push({ args, startedAt, finishedAt: now().toISOString(), error: "spawn-or-wait-failed" });
-        throw error;
+      } catch {
+        helpers.push({ args, startedAt, finishedAt: now().toISOString(), exitCode: null, signal: null,
+          timedOut: false, cancelled: false, overflow: false, stopUnconfirmed: false, outputBytes: 0,
+          error: "spawn-or-wait-failed" });
+        return { spawnOrWaitFailed: true, code: null, signal: null, stdout: "", stderr: "" };
       }
       helpers.push({ args, startedAt, finishedAt: now().toISOString(), exitCode: outcome?.code ?? null,
         signal: outcome?.signal ?? null, timedOut: !!outcome?.timedOut, cancelled: !!outcome?.cancelled,
@@ -262,12 +266,14 @@ export function createCliAdapters(options) {
         return { ok: false, reason: "subscription-confirmation-missing-or-expired", spawnAllowed: false };
       }
       const versionOutcome = await helper(executable, ["--version"]);
+      if (versionOutcome.spawnOrWaitFailed) return { ok: false, reason: "helper-spawn-or-wait-failed", spawnAllowed: false };
       const version = (versionOutcome.stdout + versionOutcome.stderr).trim().slice(0, 120);
       if (versionOutcome.stopUnconfirmed) return { ok: false, reason: "process-stop-unconfirmed",
         stopUnconfirmed: true, spawnAllowed: false };
       if (!helperSucceeded(versionOutcome) || !version) return { ok: false, reason: "cli-version-unconfirmed", spawnAllowed: false };
       const authArgs = provider === "codex" ? ["login", "status"] : ["auth", "status", "--json"];
       const outcome = await helper(executable, authArgs);
+      if (outcome.spawnOrWaitFailed) return { ok: false, reason: "helper-spawn-or-wait-failed", spawnAllowed: false };
       const normalized = normalizedAuth(provider, outcome.stdout + outcome.stderr);
       if (outcome.stopUnconfirmed) return { ok: false, reason: "process-stop-unconfirmed",
         stopUnconfirmed: true, authMethod: normalized.method, spawnAllowed: false };

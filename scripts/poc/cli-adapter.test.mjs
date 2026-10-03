@@ -129,6 +129,31 @@ describe("subscription CLI adapters", () => {
     expect(calls.some((call) => call.args[0] === "exec")).toBe(false);
   });
 
+  it.each([["version", "--version"], ["auth", "login"]])(
+    "keeps an audit entry and holds the run when the %s helper cannot be spawned or awaited", async (stage, failingArg) => {
+    const base = await fixture();
+    /** @type {any[]} */ const calls = [];
+    const adapters = createCliAdapters({ executables: { codex: join(base.root, "codex"), claude: join(base.root, "claude") },
+      controls: { files: [{ path: base.hook, sha256: sha("fixed hook\n") }], codexTrusted: true }, env: {}, home: base.root,
+      now: () => new Date("2026-09-28T03:00:00Z"), runProcess(input) {
+        calls.push(input);
+        if (input.args[0] === failingArg) return { promise: Promise.reject(new Error("spawn EACCES")), cancel() {} };
+        return { promise: Promise.resolve({ code: 0, signal: null, stdout: input.args[0] === "--version" ? "codex-cli 0.test" : "Logged in using ChatGPT",
+          stderr: "", overflow: false, timedOut: false, cancelled: false, stopUnconfirmed: false }), cancel() {} };
+      } });
+    const result = await adapters.run({ provider: "codex", kind: "smoke", worktree: base.root,
+      prompt: "fixed", confirmation: base.confirmation("codex") });
+    expect(result.state).toBe("held");
+    expect(result.preflight).toMatchObject({ ok: false, reason: "helper-spawn-or-wait-failed", spawnAllowed: false });
+    expect(result.preflight.helpers).toHaveLength(stage === "version" ? 1 : 2);
+    expect(result.preflight.helpers.at(-1)).toMatchObject({ args: stage === "version" ? ["--version"] : ["login", "status"],
+      error: "spawn-or-wait-failed", exitCode: null, signal: null, timedOut: false, cancelled: false, overflow: false,
+      stopUnconfirmed: false, outputBytes: 0 });
+    expect(result.preflight.helpers.at(-1).startedAt).toBe("2026-09-28T03:00:00.000Z");
+    expect(Object.keys(result.preflight.helpers.at(-1))).not.toContain("stdout");
+    expect(calls.some((call) => call.args[0] === "exec")).toBe(false);
+  });
+
   it("does not accept a smoke run without an observed real-session hook denial", async () => {
     const base = await fixture();
     /** @type {any[]} */ const calls = [];

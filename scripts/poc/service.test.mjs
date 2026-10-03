@@ -23,7 +23,7 @@ function git(repo, args) {
   }).trim();
 }
 
-/** @param {{cli?:boolean,beforeAuth?:()=>Promise<void>,beforeWorkload?:(input:any)=>Promise<void>,stopUnconfirmed?:boolean,processAlive?:(pid:number)=>boolean}} [options] */
+/** @param {{cli?:boolean,beforeAuth?:()=>Promise<void>,beforeWorkload?:(input:any)=>Promise<void>,stopUnconfirmed?:boolean,helperSpawnFails?:boolean,processAlive?:(pid:number)=>boolean}} [options] */
 async function fixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), "jsix-service-"));
   roots.push(root);
@@ -62,7 +62,8 @@ async function fixture(options = {}) {
         const provider = input.executable.endsWith("codex") ? "codex" : "claude";
         const first = input.args[0];
         let promise;
-        if (first === "--version") promise = Promise.resolve({ code: 0, signal: null,
+        if (first === "--version" && options.helperSpawnFails) promise = Promise.reject(new Error("spawn EACCES"));
+        else if (first === "--version") promise = Promise.resolve({ code: 0, signal: null,
           stdout: `${provider} 0.test`, stderr: "", overflow: false, timedOut: false, cancelled: false });
         else if (first === "login" || first === "auth") promise = (async () => { await options.beforeAuth?.(); return {
           code: 0, signal: null, stdout: provider === "codex" ? "Logged in using ChatGPT" : JSON.stringify({ loggedIn: true,
@@ -163,6 +164,26 @@ describe("localhost service commands", () => {
     await writeFile(logPath, log, { mode: 0o600 });
     await expect(service.runCli({ ...common(edited.head, id, 0, commit), provider: "codex", kind: "edit" }))
       .rejects.toThrow(/回数上限|確認/);
+  }, 300_000);
+
+  it("keeps the manifest and ledger result when a preflight helper cannot be spawned", async () => {
+    const { service, commit, content, cliCalls, ledgerRoot } = await fixture({ cli: true, helperSpawnFails: true });
+    let result = await advanceToP4(service, commit, content); const id = result.project.projectId;
+    result = await service.confirmSubscription({ ...common(result.head, id, 0, commit), provider: "codex" });
+    const held = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(held.cliRun.state).toBe("held");
+    expect(cliCalls.map((call) => call.args[0])).toEqual(["--version"]);
+    const manifest = JSON.parse(readFileSync(join(ledgerRoot, "private-runs", held.cliRun.runId, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({ provider: "codex", kind: "smoke", startRecordId: null, process: null,
+      preflight: { spawnAllowed: false, reason: "helper-spawn-or-wait-failed" },
+      result: { state: "held", stopReason: "helper-spawn-or-wait-failed", candidateCommit: null } });
+    expect(manifest.preflight.helpers).toHaveLength(1);
+    expect(manifest.preflight.helpers[0]).toMatchObject({ args: ["--version"], error: "spawn-or-wait-failed", exitCode: null, outputBytes: 0 });
+    expect(Object.keys(manifest.preflight.helpers[0])).not.toContain("stdout");
+    const ledger = await readLedger(ledgerRoot);
+    expect(ledger.records.at(-1)).toMatchObject({ kind: "cli.run_finished", payload: { runId: held.cliRun.runId,
+      state: "held", stopReason: "helper-spawn-or-wait-failed", manifestSha256: hash(readFileSync(join(ledgerRoot, "private-runs", held.cliRun.runId, "manifest.json"), "utf8")) } });
+    expect(held.project.cli.runs.map((item) => `${item.provider}/${item.kind}/${item.state}`)).toEqual(["codex/smoke/held"]);
   }, 300_000);
 
   it("rejects a read-only smoke that commits a repository change", async () => {
