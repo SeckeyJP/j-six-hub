@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
+import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 
 const root = resolve(".local-poc");
 const nameIndex = process.argv.indexOf("--name");
@@ -31,8 +33,23 @@ const documents = {
 for (const [path, body] of Object.entries(documents)) await writeFile(join(repo, path), body);
 git(["add", "."]);
 git(["commit", "-qm", "synthetic baseline documents and task"]);
-const config = { ledgerRoot: join(root, name === "synthetic-project" ? "ledger" : `ledger-${name}`),
-  fixtures: { synthetic: { repo, repoId: "synthetic" } } };
+const config = /** @type {any} */ ({ ledgerRoot: join(root, name === "synthetic-project" ? "ledger" : `ledger-${name}`),
+  fixtures: { synthetic: { repo, repoId: "synthetic" } } });
+if (process.argv.includes("--enable-cli")) {
+  const home = homedir();
+  const files = [join(home, ".claude/CLAUDE.md"), join(home, ".codex/AGENTS.md"),
+    join(home, ".claude/settings.json"), join(home, ".codex/hooks.json"),
+    join(home, ".codex/config.toml"), join(home, ".claude/scripts/deny-check.sh"),
+    join(home, ".claude/scripts/deny_check.py")];
+  const bodies = await Promise.all(files.map((path) => readFile(path)));
+  config.cli = { executables: { codex: join(home, ".local/bin/codex"),
+    claude: join(home, ".npm-global/bin/claude") }, controls: { files: files.map((path, index) => ({
+    path, sha256: createHash("sha256").update(bodies[index] ?? Buffer.alloc(0)).digest("hex") })),
+  codexTrusted: /^\[hooks\.state\]$/m.test((bodies[4] ?? Buffer.alloc(0)).toString("utf8")) &&
+    (bodies[4] ?? Buffer.alloc(0)).includes(".codex/hooks.json") },
+  retention: { privateRunLogsDays: 7, deleteOnProjectRemoval: true,
+    missingEvidenceState: "unknown" } };
+}
 const configPath = join(root, name === "synthetic-project" ? "config.json" : `config-${name}.json`);
 await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600, flag: "wx" });
 process.stdout.write(`合成Git案件: ${repo}\n基準commit: ${git(["rev-parse", "HEAD"])}\n設定: ${configPath}\n`);

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -54,6 +55,13 @@ function assertStepHistory(worktree, steps) {
     steps[2].test?.status !== "passed" || steps[3].test?.status !== "passed") {
     throw new Error("Red/Green/Refactorの実結果が不足しています");
   }
+  if (steps[3].outcome === "no_change" && (steps[3].owner !== "hub" ||
+    steps[3].sourceCommit !== steps[2].commit || steps[3].criteria !== "fixed-synthetic-g1-and-tests" ||
+    !/^[0-9a-f]{64}$/.test(steps[3].criteriaEvidenceSha256 ?? "") ||
+    !steps[3].criteriaResults || Object.values(steps[3].criteriaResults).some((result) => result !== true) ||
+    git(worktree, ["rev-parse", `${steps[2].commit}^{tree}`]) !== git(worktree, ["rev-parse", `${steps[3].commit}^{tree}`]))) {
+    throw new Error("no-change Refactor checkpointが不正です");
+  }
 }
 
 /** Independent deterministic checks for the fixed synthetic fixture only.
@@ -67,9 +75,12 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
     git(worktree, ["rev-parse", "HEAD"]) !== candidate.candidateCommit) throw new Error("候補HEAD・基準commitが一致しません");
   assertStepHistory(worktree, steps);
   const originalBase = git(worktree, ["rev-parse", `${steps[0].commit}^`]);
-  if (candidate.mode === "fake") {
+  if (["fake", "live"].includes(candidate.mode)) {
     if (steps[3].commit !== candidate.candidateCommit || originalBase !== candidate.baseCommit) {
       throw new Error("候補とTDD履歴の対象commitが一致しません");
+    }
+    if (candidate.mode === "live" && (steps[3].outcome !== "no_change" || steps[2].owner !== "cli")) {
+      throw new Error("live TDD履歴の担当・Refactor判定が不正です");
     }
   } else if (candidate.mode === "fake-revalidation") {
     if (candidate.candidateCommit !== candidate.baseCommit ||
@@ -150,14 +161,34 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
     return { candidateCommit: candidate.candidateCommit, checks };
   }
   const tests = run(worktree, process.execPath, ["--test", "tests/approval.test.mjs", "tests/holdout.test.mjs"]);
-  record("G2", "tests", tests.ok ? "passed" : "failed", tests.output,
+  const protectedAfterTests = sha(readFileSync(join(worktree, "tests/approval.test.mjs"))) === sha(unit) &&
+    sha(readFileSync(join(worktree, "tests/holdout.test.mjs"))) === sha(holdout) &&
+    git(worktree, ["status", "--porcelain"]) === "";
+  record("G2", "tests", tests.ok && protectedAfterTests ? "passed" : "failed",
+    `${tests.output}\nprotectedFilesUnchanged=${protectedAfterTests}`,
     "node --test tests/approval.test.mjs tests/holdout.test.mjs", "node");
+  if (!tests.ok || !protectedAfterTests) {
+    for (const id of localPolicy.requiredCheckIds.slice(checks.length)) {
+      record("G2", id, "not_run", "Blocked because candidate execution changed protected tests.", "not run");
+    }
+    return { candidateCommit: candidate.candidateCommit, checks };
+  }
   const coverage = run(worktree, process.execPath, ["--experimental-test-coverage", "--test",
     "tests/approval.test.mjs", "tests/holdout.test.mjs"]);
   const coverageRow = /all files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/.exec(coverage.output);
-  const coverageOk = coverage.ok && !!coverageRow && Number(coverageRow[1]) >= 80 && Number(coverageRow[2]) >= 75;
+  const protectedAfterCoverage = sha(readFileSync(join(worktree, "tests/approval.test.mjs"))) === sha(unit) &&
+    sha(readFileSync(join(worktree, "tests/holdout.test.mjs"))) === sha(holdout) &&
+    git(worktree, ["status", "--porcelain"]) === "";
+  const coverageOk = coverage.ok && protectedAfterCoverage && !!coverageRow &&
+    Number(coverageRow[1]) >= 80 && Number(coverageRow[2]) >= 75;
   record("G2", "coverage", coverageOk ? "passed" : "failed", coverage.output,
     "node --experimental-test-coverage --test tests/approval.test.mjs tests/holdout.test.mjs", "node");
+  if (!protectedAfterCoverage) {
+    for (const id of localPolicy.requiredCheckIds.slice(checks.length)) {
+      record("G2", id, "not_run", "Blocked because coverage execution changed protected tests.", "not run");
+    }
+    return { candidateCommit: candidate.candidateCommit, checks };
+  }
   const mutationRoot = await mkdtemp(join(tmpdir(), "jsix-mutation-"));
   let mutant;
   try {
@@ -180,7 +211,10 @@ export async function inspectSyntheticCandidate({ repo, worktreeRoot, run: candi
   record("G2", "test_tamper", holdoutSame && redSame ? "passed" : "failed",
     `holdoutUnchanged=${holdoutSame}; redTestUnchanged=${redSame}`, "git blob identity checks", "git");
   const holdoutTest = run(worktree, process.execPath, ["--test", "tests/holdout.test.mjs"]);
-  record("G2", "holdout", holdoutTest.ok ? "passed" : "failed", holdoutTest.output,
+  const protectedAfterHoldout = sha(readFileSync(join(worktree, "tests/approval.test.mjs"))) === sha(unit) &&
+    sha(readFileSync(join(worktree, "tests/holdout.test.mjs"))) === sha(holdout) &&
+    git(worktree, ["status", "--porcelain"]) === "";
+  record("G2", "holdout", holdoutTest.ok && protectedAfterHoldout ? "passed" : "failed", holdoutTest.output,
     "node --test tests/holdout.test.mjs", "node");
   const traceIds = ["REQ-001", "PROP-001"];
   const traceOk = traceIds.every((id) => requirementSpec.includes(id) &&

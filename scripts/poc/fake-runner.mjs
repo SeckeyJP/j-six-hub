@@ -7,7 +7,7 @@ const runPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "J-SIX synthetic PoC", GIT_AUTHOR_EMAIL: "poc@localhost",
   GIT_COMMITTER_NAME: "J-SIX synthetic PoC", GIT_COMMITTER_EMAIL: "poc@localhost" };
 
-const holdout = `import { test } from "node:test";
+export const syntheticHoldout = `import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { approve } from "../src/approval.mjs";
 test("REQ-001 / PROP-001: malformed and negative amounts cannot pass", () => {
@@ -16,7 +16,7 @@ test("REQ-001 / PROP-001: malformed and negative amounts cannot pass", () => {
   assert.equal(approve(5, -1), false);
 });
 `;
-const redTest = `import { test } from "node:test";
+export const syntheticRedTest = `import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { approve } from "../src/approval.mjs";
 test("REQ-001 / PROP-001: bounded approval", () => {
@@ -24,7 +24,7 @@ test("REQ-001 / PROP-001: bounded approval", () => {
   assert.equal(approve(12, 10), false);
 });
 `;
-const greenCode = `/** REQ-001 / PROP-001: approve a finite nonnegative amount within a finite limit.
+export const syntheticGreenCode = `/** REQ-001 / PROP-001: approve a finite nonnegative amount within a finite limit.
  * @param {number} amount @param {number} limit
  */
 export function approve(amount, limit) {
@@ -32,7 +32,7 @@ export function approve(amount, limit) {
     amount >= 0 && limit >= 0 && amount <= limit;
 }
 `;
-const refactorCode = `/** REQ-001 / PROP-001: approve a finite nonnegative amount within a finite limit.
+export const syntheticRefactorCode = `/** REQ-001 / PROP-001: approve a finite nonnegative amount within a finite limit.
  * @param {number} amount @param {number} limit
  */
 export function approve(amount, limit) {
@@ -90,19 +90,19 @@ export async function runSyntheticTdd({ repo, worktreeRoot, runId, baseCommit })
     git(worktree, ["commit", "-qm", `Synthetic ${id}`]);
     return git(worktree, ["rev-parse", "HEAD"]);
   }
-  await writeFile(join(worktree, "tests/holdout.test.mjs"), holdout);
+  await writeFile(join(worktree, "tests/holdout.test.mjs"), syntheticHoldout);
   steps.push({ id: "holdout", commit: commit("holdout", ["tests/holdout.test.mjs"]) });
-  await writeFile(join(worktree, "tests/approval.test.mjs"), redTest);
+  await writeFile(join(worktree, "tests/approval.test.mjs"), syntheticRedTest);
   const redCommit = commit("red", ["tests/approval.test.mjs"]);
   const red = testRun(worktree, ["tests/approval.test.mjs"]);
   if (red.status !== "failed" || red.failureCode !== "ERR_ASSERTION") throw new Error("意図したRed失敗を観測できません");
   steps.push({ id: "red", commit: redCommit, test: { status: "expected_failure", failureCode: red.failureCode } });
-  await writeFile(join(worktree, "src/approval.mjs"), greenCode);
+  await writeFile(join(worktree, "src/approval.mjs"), syntheticGreenCode);
   const greenCommit = commit("green", ["src/approval.mjs"]);
   const green = testRun(worktree, ["tests/approval.test.mjs", "tests/holdout.test.mjs"]);
   if (green.status !== "passed") throw new Error("合成Greenの実テストが失敗しました");
   steps.push({ id: "green", commit: greenCommit, test: green });
-  await writeFile(join(worktree, "src/approval.mjs"), refactorCode);
+  await writeFile(join(worktree, "src/approval.mjs"), syntheticRefactorCode);
   const refactorCommit = commit("refactor", ["src/approval.mjs"]);
   const refactor = testRun(worktree, ["tests/approval.test.mjs", "tests/holdout.test.mjs"]);
   if (refactor.status !== "passed") throw new Error("合成Refactorの実テストが失敗しました");

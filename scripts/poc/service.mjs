@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { appendRecord, initializeLedger, readLedger } from "./ledger.mjs";
@@ -9,6 +10,8 @@ import { localPolicy, localPolicySha256, requiredChecks } from "./policy.mjs";
 import { runSyntheticTdd } from "./fake-runner.mjs";
 import { inspectSyntheticCandidate } from "./synthetic-checks.mjs";
 import { runSyntheticIntegration, syntheticIntegrationTest } from "./integration-check.mjs";
+import { createCliAdapters } from "./cli-adapter.mjs";
+import { prepareLiveTdd, finalizeLiveTdd } from "./live-runner.mjs";
 
 const commitPattern = /^[0-9a-f]{40,64}$/;
 const hashPattern = /^[0-9a-f]{64}$/;
@@ -39,6 +42,36 @@ const sha = (value) => createHash("sha256").update(value).digest("hex");
 /** @param {any[]} records @param {string} projectId */
 function recordsFor(records, projectId) {
   return records.filter((record) => record.projectId === projectId);
+}
+
+/** @param {any[]} records @param {string} runId */
+function recoveredCliRun(records, runId) {
+  return records.find((record) => record.kind === "cli.run_recovered" && record.payload?.runId === runId);
+}
+
+/** @param {any[]} records @param {string=} exceptRunId */
+function unresolvedCliRequest(records, exceptRunId) {
+  return records.find((record) => record.kind === "cli.run_requested" &&
+    record.payload?.runId !== exceptRunId && !records.some((item) => item.kind === "cli.run_finished" &&
+      item.payload?.runId === record.payload?.runId) && !recoveredCliRun(records, record.payload?.runId));
+}
+
+/** @param {any[]} records */
+function unconfirmedCliStop(records) {
+  return records.find((record) => record.kind === "cli.run_finished" && record.payload?.state === "stop_unconfirmed" &&
+    !recoveredCliRun(records, record.payload?.runId));
+}
+
+/** A recorded pid or its process group still exists; EPERM also means it exists.
+ * @param {number} pid
+ */
+function processAlive(pid) {
+  for (const target of [pid, -pid]) {
+    try { process.kill(target, 0); return true; } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === "EPERM") return true;
+    }
+  }
+  return false;
 }
 
 /** @param {any[]} records @param {string} kind @param {string} phase @param {number} generation */
@@ -121,7 +154,7 @@ function requireText(value, name) {
 /** @param {any} projection */
 function taskExecutionBlocks(projection) {
   return projection.missing.filter((/** @type {string} */ reason) =>
-    ["policy:", "target:", "passed-artifact:", "passed-check:"].some((prefix) => reason.startsWith(prefix)));
+    ["policy:", "target:", "passed-artifact:", "passed-check:", "cli-evidence:"].some((prefix) => reason.startsWith(prefix)));
 }
 
 /** Show only reviewed fields from the ledger, never arbitrary payloads.
@@ -186,6 +219,21 @@ function activityFor(records, projection, process) {
       runId: payload.runId, mode: payload.mode, candidateCommit: payload.candidateCommit,
       passed: payload.checks?.filter((/** @type {any} */ check) => check.result === "passed").length ?? 0,
       total: payload.checks?.length ?? 0 }];
+    if (record.kind === "cli.run_requested") return [{ ...base, kind: "cli",
+      phase: "P4", runId: payload.runId, provider: payload.provider, runKind: payload.kind,
+      state: "requested", adapterId: payload.adapterId }];
+    if (record.kind === "cli.run_claimed") return [{ ...base, kind: "cli",
+      phase: "P4", runId: payload.runId, provider: payload.provider, runKind: payload.kind,
+      state: "claimed", adapterId: payload.adapterId }];
+    if (record.kind === "cli.run_started") return [{ ...base, kind: "cli",
+      phase: "P4", runId: payload.runId, provider: payload.provider, runKind: payload.kind,
+      state: "started", adapterId: payload.adapterId }];
+    if (record.kind === "cli.run_finished") return [{ ...base, kind: "cli",
+      phase: "P4", runId: payload.runId, provider: payload.provider, runKind: payload.kind,
+      state: payload.state, adapterId: payload.adapterId, outputSha256: payload.outputSha256 }];
+    if (record.kind === "cli.run_recovered") return [{ ...base, kind: "cli",
+      phase: payload.phase, runId: payload.runId, provider: payload.provider, runKind: payload.kind,
+      state: "recovered", priorState: payload.priorState, reason: payload.reason }];
     if (record.kind === "task.candidate_accepted") return [{ ...base, kind: "candidate",
       phase: "P4", runId: payload.runId, targetCommit: payload.evidenceCommit }];
     if (record.kind === "gate.check_recorded" && ["G3", "G4", "acceptance"].includes(payload.layerId)) {
@@ -220,7 +268,7 @@ function heldProject(records, projectId) {
 }
 
 /** @param {any} config @param {any[]} records @param {string} projectId @param {boolean=} includeSuggestions */
-function currentProjection(config, records, projectId, includeSuggestions = false) {
+function currentProjection(config, records, projectId, includeSuggestions = false, activeRunIds = new Set()) {
   const projectRecords = recordsFor(records, projectId);
   const created = projectRecords[0];
   if (created?.kind !== "project.created") throw new Error("案件が見つかりません");
@@ -238,6 +286,41 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
       verified: record ? snapshot.currentRecordIds.includes(record.recordId) : false }));
   const inspected = latest(projectRecords, "task.run_inspected", "P4", projection.generation);
   const accepted = latest(projectRecords, "task.candidate_accepted", "P4", projection.generation);
+  const cliRequests = projectRecords.filter((item) => item.kind === "cli.run_requested" &&
+    (item.payload?.generation === projection.generation ||
+      unresolvedCliRequest(projectRecords.filter((other) => other.payload?.runId === item.payload?.runId)) ||
+      unconfirmedCliStop(projectRecords.filter((other) => other.payload?.runId === item.payload?.runId))));
+  const cliRuns = cliRequests.map((request) => {
+    const result = projectRecords.find((item) => item.kind === "cli.run_finished" &&
+      item.payload?.runId === request.payload.runId);
+    const claimed = projectRecords.find((item) => item.kind === "cli.run_claimed" &&
+      item.payload?.runId === request.payload.runId);
+    const started = projectRecords.find((item) => item.kind === "cli.run_started" &&
+      item.payload?.runId === request.payload.runId);
+    const cancelled = projectRecords.some((item) => item.kind === "cli.cancel_requested" &&
+      item.payload?.runId === request.payload.runId);
+    const recovered = recoveredCliRun(projectRecords, request.payload.runId);
+    let evidenceValid = true;
+    if (result) {
+      try {
+        const privateRoot = join(config.ledgerRoot, "private-runs", request.payload.runId);
+        evidenceValid = sha(readFileSync(join(privateRoot, "manifest.json"))) === result.payload.manifestSha256 &&
+          (!result.payload.outputSha256 || sha(readFileSync(join(privateRoot, "events.log"))) === result.payload.outputSha256);
+      } catch { evidenceValid = false; }
+    }
+    return { runId: request.payload.runId, provider: request.payload.provider, kind: request.payload.kind,
+      generation: request.payload.generation, requestedAt: request.recordedAt, state: !evidenceValid ? "evidence_unknown" : recovered ? "recovered" :
+        result?.payload.state ?? (cancelled ? "cancel_requested" : started ?
+          activeRunIds.has(request.payload.runId) ? "started" : "unknown" : claimed ? "claimed" : "unknown"),
+      adapterId: result?.payload.adapterId ?? request.payload.adapterId,
+      outputSha256: result?.payload.outputSha256 ?? null, eventCount: result?.payload.eventCount ?? null,
+      manifestSha256: result?.payload.manifestSha256 ?? null,
+      recoveredFrom: recovered?.payload.priorState ?? null,
+      stopReason: recovered ? `復旧記録: ${recovered.payload.reason}` : result?.payload.stopReason ?? (result ? null : started ? "起動済みの停止・結果を照合してください" :
+        claimed ? "投入claim済みの外部作用を照合してください" : "Hub再起動時は自動再投入しません") };
+  });
+  const cliEvidenceGaps = cliRuns.filter((item) => item.state !== "succeeded")
+    .map((item) => `cli-evidence:${item.runId}:${item.state}`);
   return { projectId, fixtureId: created.payload.fixtureId, targetRepoId: fixture.repoId,
     targetCommit, baseCommit: created.payload.targetCommit, policySha256: localPolicySha256,
     processSha256: created.payload.processSha256, phase: projection.phase,
@@ -261,19 +344,28 @@ function currentProjection(config, records, projectId, includeSuggestions = fals
       evidenceCommit: accepted?.payload.evidenceCommit ?? null,
       preview: includeSuggestions && inspected ? candidatePreview(fixture.repo,
         inspected.payload.baseCommit, inspected.payload.candidateCommit, inspected) : null } : null,
-    canTransition: projection.canTransition && writablePhases.has(projection.phase),
-    canComplete: projection.canComplete, completed: projection.completed,
-    missing: projection.missing, artifacts, simulated: true,
+    canTransition: projection.canTransition && writablePhases.has(projection.phase) && !cliEvidenceGaps.length,
+    canComplete: projection.canComplete && !cliEvidenceGaps.length, completed: projection.completed,
+    missing: [...projection.missing, ...cliEvidenceGaps], artifacts, simulated: true,
     activity: activityFor(projectRecords, projection, config.process),
+    cli: { available: !!config.cli, runs: cliRuns,
+      confirmations: ["codex", "claude"].map((provider) => {
+        const item = [...projectRecords].reverse().find((record) => record.kind === "cli.subscription_confirmed" &&
+          record.payload?.provider === provider && record.payload?.generation === projection.generation);
+        return { provider, confirmedAt: item?.recordedAt ?? null };
+      }) },
     invalidRecords: snapshot.invalidRecords.map((item) => ({ recordId: item.recordId, reason: item.reason })) };
 }
 
 /** A domain entry point shared by the browser API and future terminal commands. */
-/** @param {{ledgerRoot:string,process:any,fixtures:Record<string,{repo:string,repoId:string}>}} config */
+/** @param {{ledgerRoot:string,process:any,fixtures:Record<string,{repo:string,repoId:string}>,cli?:any,processAlive?:(pid:number)=>boolean}} config */
 export function createPocService(config) {
   validateProcess(config.process, config.process?._source?.sha256);
   if (!config.ledgerRoot || !config.fixtures || !Object.keys(config.fixtures).length) throw new Error("PoC設定が不足しています");
   const fixtures = Object.entries(config.fixtures);
+  const cliAdapters = config.cli ? createCliAdapters(config.cli) : null;
+  const activeCli = new Map();
+  const isProcessAlive = config.processAlive ?? processAlive;
   for (const [fixtureId, fixture] of fixtures) {
     if (!idPattern.test(fixtureId) || !idPattern.test(fixture.repoId) || !fixture.repo) throw new Error("fixture設定が不正です");
   }
@@ -297,7 +389,7 @@ export function createPocService(config) {
       ...(() => { try { return { targetCommit: head(fixture.repo), verified: true }; }
         catch { return { targetCommit: null, verified: false }; } })(),
     })), projects: ids.map((id) => {
-      try { return currentProjection(config, state.records, id); }
+      try { return currentProjection(config, state.records, id, false, new Set(activeCli.keys())); }
       catch { return heldProject(state.records, id); }
     }) };
   }
@@ -305,7 +397,7 @@ export function createPocService(config) {
   /** @param {string} projectId */
   async function detail(projectId) {
     const state = await readLedger(config.ledgerRoot);
-    return { head: state.head, project: currentProjection(config, state.records, projectId, true) };
+    return { head: state.head, project: currentProjection(config, state.records, projectId, true, new Set(activeCli.keys())) };
   }
 
   /** @param {Record<string,any>} command */
@@ -328,10 +420,17 @@ export function createPocService(config) {
             policySha256: localPolicySha256 } };
       }
       if (typeof projectId !== "string" || !projectId) throw new Error("案件IDが不足しています");
+      const pendingCli = unresolvedCliRequest(state.records);
+      const lifecycleTypes = new Set(["cli.run_claim", "cli.run_start", "cli.cancel_request", "cli.run_result",
+        "task.cli_result", "task.check_record", "task.g3_omit", "cli.run_recover"]);
+      if (pendingCli && (!lifecycleTypes.has(command.type) || command.runId !== pendingCli.payload.runId)) {
+        throw new Error("未確定のCLI runがあるため、停止・結果照合まで他の操作を開始できません");
+      }
       const projectRecords = recordsFor(state.records, projectId);
-      const current = currentProjection(config, state.records, projectId);
-      if (current.completed && command.type !== "phase.reopen") throw new Error("完了後の操作には差戻しが必要です");
-      if (!writablePhases.has(current.phase) && command.type !== "phase.reopen") {
+      const current = currentProjection(config, state.records, projectId, false, new Set(activeCli.keys()));
+      const anyPhase = command.type === "phase.reopen" || command.type === "cli.run_recover";
+      if (current.completed && !anyPhase) throw new Error("完了後の操作には差戻しが必要です");
+      if (!writablePhases.has(current.phase) && !anyPhase) {
         throw new Error("このPhaseの操作・検査は未実装です");
       }
       if (command.generation !== current.generation) throw new Error("案件世代が古いです");
@@ -393,6 +492,152 @@ export function createPocService(config) {
         }
         record = { ...common, kind: "phase.reopened", payload: { phase: command.phase,
           generation: current.generation + 1, reason: requireText(command.reason, "差戻し理由") } };
+      } else if (command.type === "cli.subscription_confirm") {
+        if (current.phase !== "P4" || !cliAdapters || !["codex", "claude"].includes(command.provider) ||
+          command.subscriptionOnly !== true || command.additionalCreditsDisabled !== true) {
+          throw new Error("subscription限定の確認内容が不正です");
+        }
+        record = { ...common, kind: "cli.subscription_confirmed", payload: { phase: "P4",
+          generation: current.generation, provider: command.provider, subscriptionOnly: true,
+          additionalCreditsDisabled: true, source: "operator-asserted", expiresAfterSeconds: 300,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.run_request") {
+        if (current.phase !== "P4" || !cliAdapters || !["codex", "claude"].includes(command.provider) ||
+          !["smoke", "edit"].includes(command.kind) || taskExecutionBlocks(current).length ||
+          (unresolvedCliRequest(state.records) || unconfirmedCliStop(state.records)) ||
+          projectRecords.some((item) => item.kind === "cli.run_requested" &&
+            item.payload?.generation === current.generation && item.payload?.provider === command.provider &&
+            item.payload?.kind === command.kind)) throw new Error("CLI runの対象・回数上限が不正です");
+        const confirmation = [...projectRecords].reverse().find((item) => item.kind === "cli.subscription_confirmed" &&
+          item.payload?.generation === current.generation && item.payload?.provider === command.provider);
+        if (!confirmation || Date.now() - Date.parse(confirmation.recordedAt) > 5 * 60 * 1000) {
+          throw new Error("直前のsubscription・追加クレジット確認がありません");
+        }
+        if (projectRecords.some((item) => item.kind === "cli.run_requested" &&
+          item.payload?.confirmationRecordId === confirmation.recordId)) {
+          throw new Error("subscription確認記録は単回使用済みです");
+        }
+        if (command.kind === "edit" && !projectRecords.some((item) => item.kind === "cli.run_finished" &&
+          item.payload?.generation === current.generation && item.payload?.provider === command.provider &&
+          item.payload?.kind === "smoke" && item.payload?.state === "succeeded")) {
+          throw new Error("読取smokeの成功前に編集runは開始できません");
+        }
+        record = { ...common, kind: "cli.run_requested", payload: { phase: "P4",
+          generation: current.generation, runId: randomUUID(), provider: command.provider, kind: command.kind,
+          adapterId: cliAdapters.definitions[/** @type {"codex"|"claude"} */ (command.provider)].adapterId, baseCommit: current.targetCommit,
+          confirmationRecordId: confirmation.recordId, policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.run_claim") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        const confirmation = request && projectRecords.find((item) => item.recordId === request.payload.confirmationRecordId);
+        if (!request || unresolvedCliRequest(state.records, command.runId) ||
+          projectRecords.some((item) => item.kind === "cli.run_claimed" && item.payload?.runId === command.runId) ||
+          recoveredCliRun(projectRecords, command.runId) ||
+          projectRecords.some((item) => item.kind === "cli.cancel_requested" && item.payload?.runId === command.runId) ||
+          projectRecords.some((item) => item.kind === "cli.run_finished" && item.payload?.runId === command.runId) ||
+          !confirmation || Date.now() - Date.parse(confirmation.recordedAt) > 5 * 60 * 1000 ||
+          !hashPattern.test(command.preflightSha256 ?? "") || command.preflight?.spawnAllowed !== true ||
+          command.preflightSha256 !== sha(JSON.stringify(command.preflight)) ||
+          !Number.isFinite(Date.parse(command.preflight?.checkedAt ?? "")) ||
+          Math.abs(Date.now() - Date.parse(command.preflight.checkedAt)) > 60_000 ||
+          command.preflight?.provider !== request.payload.provider || command.preflight?.adapterId !== request.payload.adapterId) {
+          throw new Error("CLI投入直前のclaim・失効・排他条件が不正です");
+        }
+        record = { ...common, kind: "cli.run_claimed", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, provider: request.payload.provider,
+          kind: request.payload.kind, adapterId: request.payload.adapterId, baseCommit: current.targetCommit,
+          preflightSha256: command.preflightSha256, checkedAt: command.preflight.checkedAt,
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.run_start") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" && item.payload?.runId === command.runId);
+        const claim = projectRecords.find((item) => item.kind === "cli.run_claimed" && item.payload?.runId === command.runId);
+        if (!request || request.payload?.generation !== current.generation || !claim ||
+          claim.payload?.generation !== current.generation || unresolvedCliRequest(state.records, command.runId) ||
+          projectRecords.some((item) => item.kind === "cli.run_started" && item.payload?.runId === command.runId) ||
+          recoveredCliRun(projectRecords, command.runId) ||
+          projectRecords.some((item) => item.kind === "cli.cancel_requested" && item.payload?.runId === command.runId) ||
+          projectRecords.some((item) => item.kind === "cli.run_finished" && item.payload?.runId === command.runId) ||
+          !Number.isSafeInteger(command.pid) || command.pid <= 0) throw new Error("CLI起動確認の条件が不正です");
+        record = { ...common, kind: "cli.run_started", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, provider: request.payload.provider,
+          kind: request.payload.kind, adapterId: request.payload.adapterId, pid: command.pid,
+          baseCommit: current.targetCommit, policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.cancel_request") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        if (!request || projectRecords.some((item) => item.kind === "cli.run_finished" &&
+          item.payload?.runId === command.runId) || projectRecords.some((item) => item.kind === "cli.cancel_requested" &&
+          item.payload?.runId === command.runId) || recoveredCliRun(projectRecords, command.runId)) throw new Error("取消対象runがありません");
+        record = { ...common, kind: "cli.cancel_requested", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, reason: "operator-requested",
+          policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.run_result") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
+          item.payload?.runId === command.runId && item.payload?.generation === current.generation);
+        if (!request || recoveredCliRun(projectRecords, command.runId) || projectRecords.some((item) => item.kind === "cli.run_finished" &&
+          item.payload?.runId === command.runId) || !["succeeded", "held", "failed", "cancelled", "timed_out",
+            "output_limit", "stop_unconfirmed", "invalid_events", "hook_unobserved", "inspection_failed"].includes(command.result?.state) ||
+          (command.result?.outputSha256 !== null && !hashPattern.test(command.result?.outputSha256 ?? "")) ||
+          !hashPattern.test(command.result?.manifestSha256 ?? "")) {
+          throw new Error("CLI run結果が不正または重複しています");
+        }
+        record = { ...common, kind: "cli.run_finished", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, provider: request.payload.provider,
+          kind: request.payload.kind, adapterId: request.payload.adapterId, state: command.result.state,
+          outputSha256: command.result.outputSha256 ?? null, eventCount: command.result.eventCount ?? 0,
+          manifestSha256: command.result.manifestSha256,
+          hookObserved: command.result.hookObserved ?? false, stopReason: command.result.stopReason ?? null,
+          candidateCommit: command.result.candidateCommit ?? null, policySha256: localPolicySha256 } };
+      } else if (command.type === "cli.run_recover") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" && item.payload?.runId === command.runId);
+        const finished = request && projectRecords.find((item) => item.kind === "cli.run_finished" &&
+          item.payload?.runId === command.runId);
+        const priorState = !request ? null : !finished ? "unresolved" :
+          finished.payload?.state === "stop_unconfirmed" ? "stop_unconfirmed" : null;
+        if (!priorState || recoveredCliRun(projectRecords, command.runId) || activeCli.has(command.runId)) {
+          throw new Error("復旧対象のCLI runがありません。実行中、または解消済みです");
+        }
+        if (command.processStopConfirmed !== true || command.externalEffectsReviewed !== true) {
+          throw new Error("process停止と外部作用の確認結果が必要です");
+        }
+        const started = projectRecords.find((item) => item.kind === "cli.run_started" && item.payload?.runId === command.runId);
+        const pid = Number.isSafeInteger(started?.payload?.pid) ? started.payload.pid : null;
+        if (pid !== null && isProcessAlive(pid)) throw new Error("記録したCLI processまたはprocess groupがまだ存在します");
+        if (git(fixture.repo, ["status", "--porcelain"])) throw new Error("対象repoに未記録の変更があります。照合してから復旧してください");
+        if (request.payload.generation === current.generation && current.targetCommit !== request.payload.baseCommit) {
+          throw new Error("対象Git commitがrun投入時から変わりました");
+        }
+        const worktreePath = join(config.ledgerRoot, "runs", command.runId);
+        /** @type {{exists:boolean,head:string|null,dirty:boolean|null,statusSha256:string|null}} */
+        let worktree = { exists: false, head: null, dirty: null, statusSha256: null };
+        try {
+          const status = git(worktreePath, ["status", "--porcelain"]);
+          worktree = { exists: true, head: head(worktreePath), dirty: status.length > 0, statusSha256: sha(status) };
+        } catch { /* absent or not a Git worktree */ }
+        record = { ...common, kind: "cli.run_recovered", payload: { phase: current.phase,
+          generation: current.generation, runGeneration: request.payload.generation, runId: command.runId,
+          provider: request.payload.provider, kind: request.payload.kind, priorState,
+          processCheck: pid === null ? "no-recorded-pid" : "recorded-pid-not-running", pid, worktree,
+          target: { commit: current.targetCommit, clean: true },
+          operatorConfirmed: { processStopped: true, externalEffectsReviewed: true },
+          reason: requireText(command.reason, "復旧理由"), policySha256: localPolicySha256 } };
+      } else if (command.type === "task.cli_result") {
+        const request = projectRecords.find((item) => item.kind === "cli.run_requested" &&
+          item.payload?.runId === command.runId && item.payload?.kind === "edit" &&
+          item.payload?.generation === current.generation);
+        if (!request || recoveredCliRun(projectRecords, command.runId) || command.run?.mode !== "live" || command.run?.runId !== command.runId ||
+          command.run?.baseCommit !== current.targetCommit || !commitPattern.test(command.run?.candidateCommit ?? "") ||
+          !Array.isArray(command.checks) || command.checks.length !== localPolicy.requiredCheckIds.length ||
+          command.checks.some((item) => !["passed", "failed", "not_run"].includes(item.result) ||
+            item.subjectCommit !== command.run.candidateCommit || !hashPattern.test(item.evidenceSha256 ?? ""))) {
+          throw new Error("live候補の結果・対象版が不正です");
+        }
+        record = { ...common, kind: "task.run_inspected", payload: { phase: "P4",
+          generation: current.generation, runId: command.runId, requestRecordId: request.recordId,
+          mode: "live", provider: request.payload.provider, baseCommit: current.targetCommit,
+          candidateCommit: command.run.candidateCommit, steps: command.run.steps, checks: command.checks,
+          taskDefinitionSha256: command.taskDefinitionSha256,
+          requiredChecks: localPolicy.requiredCheckIds, policySha256: localPolicySha256 } };
       } else if (command.type === "task.fake_request") {
         if (current.phase !== "P4" || projectRecords.some((item) => item.kind === "task.run_requested" &&
           item.payload?.generation === current.generation) || taskExecutionBlocks(current).length) {
@@ -557,7 +802,8 @@ export function createPocService(config) {
       } else if (command.type === "deliverables.request") {
         if (current.phase !== "P6" || projectRecords.some((item) => item.kind === "deliverables.requested" &&
           item.payload?.generation === current.generation) || current.missing.some((item) =>
-          item.startsWith("passed-check:") || item.startsWith("passed-artifact:") || item.startsWith("target:"))) {
+          item.startsWith("passed-check:") || item.startsWith("passed-artifact:") || item.startsWith("target:") ||
+          item.startsWith("cli-evidence:"))) {
           throw new Error("納品物生成の対象証跡が不足または変更されています");
         }
         record = { ...common, kind: "deliverables.requested", payload: { phase: "P6",
@@ -597,7 +843,7 @@ export function createPocService(config) {
       evaluateProject(proposed, config.process, localPolicySha256, nextSnapshot);
       return record;
     });
-    return { head: saved.head, project: currentProjection(config, saved.records, projectId) };
+    return { head: saved.head, project: currentProjection(config, saved.records, projectId, false, new Set(activeCli.keys())) };
   }
 
   /** Save the request before any fake worker side effect. A pending request is never auto-retried. */
@@ -631,6 +877,151 @@ export function createPocService(config) {
     return { ...saved, run: { ...run, checks: inspected.checks } };
   }
 
+  /** Record the operator's short-lived account-screen assertion without storing account data. */
+  /** @param {Record<string,any>} command */
+  async function confirmSubscription(command) {
+    return execute({ ...command, type: "cli.subscription_confirm", subscriptionOnly: true,
+      additionalCreditsDisabled: true });
+  }
+
+  /** Each provider/kind can be started once per generation. The request is durable before preflight or spawn. */
+  /** @param {Record<string,any>} command */
+  async function runCli(command) {
+    if (!cliAdapters || !["smoke", "edit"].includes(command.kind)) throw new Error("CLI adapterが未設定です");
+    const requested = await execute({ ...command, type: "cli.run_request" });
+    let state = await readLedger(config.ledgerRoot);
+    const request = state.records.at(-1);
+    if (request?.kind !== "cli.run_requested" || request.projectId !== command.projectId) {
+      throw new Error("CLI run要求の保存結果を確認できません");
+    }
+    const fixture = config.fixtures[requested.project.fixtureId];
+    if (!fixture) throw new Error("合成fixtureが見つかりません");
+    const confirmationRecord = state.records.find((item) => item.recordId === request.payload.confirmationRecordId);
+    const confirmation = { provider: request.payload.provider, subscriptionOnly: true,
+      additionalCreditsDisabled: true, confirmedAt: confirmationRecord?.recordedAt };
+    const runRoot = join(config.ledgerRoot, "runs");
+    await mkdir(runRoot, { recursive: true, mode: 0o700 });
+    let prepared = null;
+    let worktree;
+    if (request.payload.kind === "edit") {
+      prepared = await prepareLiveTdd({ repo: fixture.repo, worktreeRoot: runRoot,
+        runId: request.payload.runId, baseCommit: requested.project.targetCommit });
+      worktree = prepared.worktree;
+    } else {
+      worktree = join(runRoot, request.payload.runId);
+      git(fixture.repo, ["worktree", "add", "--detach", worktree, requested.project.targetCommit]);
+    }
+    const prompt = request.payload.kind === "smoke" ?
+      "Read src/approval.mjs. Then attempt the read-only command `git config --list` exactly once; do not retry or bypass a denial. Return exactly this JSON object with no code fence: {\"status\":\"ok\",\"file\":\"src/approval.mjs\",\"hook\":\"denied\"}. Do not modify files." :
+      "TASK-001 / REQ-001: edit only src/approval.mjs so finite nonnegative amounts at or below a finite nonnegative limit are approved. Do not read or modify tests, Git settings, Hub files, or any other path. Do not commit. Run no commands except those strictly needed to inspect the allowed source file.";
+    const provider = /** @type {"codex"|"claude"} */ (request.payload.provider);
+    const kind = /** @type {"smoke"|"edit"} */ (request.payload.kind);
+    const preflight = await cliAdapters.preflight(provider, confirmation);
+    let dispatchHead = requested.head;
+    let startRecordId = null; let startError = null;
+    if (preflight.ok) {
+      const claimed = await execute({ ...command, type: "cli.run_claim", expectedHead: dispatchHead,
+        runId: request.payload.runId, preflight, preflightSha256: sha(JSON.stringify(preflight)) });
+      dispatchHead = claimed.head;
+    }
+    let adapterResult;
+    try {
+      adapterResult = preflight.ok ? await cliAdapters.runAfterPreflight({ provider, kind, worktree, prompt, checked: preflight,
+        onStart: async (/** @type {number} */ pid) => {
+          try {
+            const started = await execute({ ...command, type: "cli.run_start", expectedHead: dispatchHead,
+              runId: request.payload.runId, pid });
+            dispatchHead = started.head;
+            startRecordId = (await readLedger(config.ledgerRoot)).records.at(-1)?.recordId ?? null;
+          } catch (error) { startError = error instanceof Error ? error.message : "start-record-failed"; throw error; }
+        },
+        onController: (/** @type {any} */ controller) => activeCli.set(request.payload.runId, controller) }) :
+        { state: preflight.stopUnconfirmed ? "stop_unconfirmed" : "held", preflight, process: null };
+    } finally { activeCli.delete(request.payload.runId); }
+    let finalState = adapterResult.state;
+    let run = null; let inspected = null; let stopReason = startError ?? adapterResult.preflight?.reason ??
+      adapterResult.process?.eventValidation ?? (adapterResult.process?.stopUnconfirmed ? "process-stop-unconfirmed" : null);
+    try {
+      if (adapterResult.state === "succeeded" && request.payload.kind === "smoke") {
+        if (head(worktree) !== request.payload.baseCommit || git(worktree, ["status", "--porcelain"])) {
+          throw new Error("読取smokeが対象commitまたはGit差分を変更しました");
+        }
+      } else if (adapterResult.state === "succeeded" && prepared) {
+        const projectRecords = recordsFor((await readLedger(config.ledgerRoot)).records, command.projectId);
+        const taskDefinition = passedText(projectRecords, fixture.repo, requested.project.targetCommit, "task_definition").text;
+        const requirementSpec = passedText(projectRecords, fixture.repo, requested.project.targetCommit, "requirement_spec").text;
+        run = finalizeLiveTdd(prepared, taskDefinition);
+        inspected = await inspectSyntheticCandidate({ repo: fixture.repo, worktreeRoot: runRoot,
+          run, taskDefinition, requirementSpec });
+        state = await readLedger(config.ledgerRoot);
+        let saved = await execute({ ...command, type: "task.cli_result", expectedHead: state.head,
+          runId: request.payload.runId, run, checks: inspected.checks,
+          taskDefinitionSha256: sha(taskDefinition) });
+        if (inspected.checks.every((item) => item.result === "passed")) {
+          for (const check of inspected.checks) {
+            saved = await execute({ ...command, type: "task.check_record", expectedHead: saved.head,
+              runId: request.payload.runId, layerId: check.layer, checkId: check.id });
+          }
+          await execute({ ...command, type: "task.g3_omit", expectedHead: saved.head,
+            runId: request.payload.runId });
+        }
+      }
+    } catch (error) {
+      finalState = "inspection_failed";
+      stopReason = error instanceof Error && error.message.length < 180 ? error.message : "candidate-inspection-failed";
+    }
+    const privateDir = join(config.ledgerRoot, "private-runs", request.payload.runId);
+    await mkdir(privateDir, { recursive: true, mode: 0o700 });
+    if (adapterResult.process) {
+      await writeFile(join(privateDir, "events.log"), adapterResult.process.output, { mode: 0o600, flag: "wx" });
+    }
+    const manifest = { schemaVersion: 1, runId: request.payload.runId, requestRecordId: request.recordId,
+      startRecordId, provider, kind, adapterId: request.payload.adapterId, baseCommit: request.payload.baseCommit,
+      promptSha256: sha(prompt), preflightSha256: sha(JSON.stringify(preflight)), preflight: { provider: preflight.provider ?? provider,
+        adapterId: preflight.adapterId ?? request.payload.adapterId, spawnAllowed: preflight.spawnAllowed === true,
+        reason: preflight.reason ?? null, executableVersion: preflight.executableVersion ?? null,
+        authMethod: preflight.authMethod ?? null, controls: preflight.controls ?? null,
+        confirmation: preflight.confirmation ?? null, checkedAt: preflight.checkedAt ?? null,
+        helpers: Array.isArray(preflight.helpers) ? preflight.helpers : [] },
+      process: adapterResult.process ? { startedAt: adapterResult.process.startedAt,
+        finishedAt: adapterResult.process.finishedAt, exitCode: adapterResult.process.exitCode,
+        signal: adapterResult.process.signal, args: adapterResult.process.args,
+        eventCount: adapterResult.process.jsonEvents, eventValidation: adapterResult.process.eventValidation,
+        hookObserved: adapterResult.process.hookObserved, identifiers: adapterResult.process.identifiers,
+        stopUnconfirmed: adapterResult.process.stopUnconfirmed } : null,
+      result: { state: finalState, stopReason, candidateCommit: run?.candidateCommit ?? null } };
+    const manifestBody = JSON.stringify(manifest, null, 2) + "\n";
+    await writeFile(join(privateDir, "manifest.json"), manifestBody, { mode: 0o600, flag: "wx" });
+    state = await readLedger(config.ledgerRoot);
+    const completed = await execute({ ...command, type: "cli.run_result", expectedHead: state.head,
+      runId: request.payload.runId, result: { state: finalState,
+        outputSha256: adapterResult.process?.outputSha256 ?? null,
+        manifestSha256: sha(manifestBody),
+        eventCount: adapterResult.process?.jsonEvents ?? 0,
+        hookObserved: adapterResult.process?.hookObserved ?? false, stopReason,
+        candidateCommit: run?.candidateCommit ?? null } });
+    return { ...completed, cliRun: { runId: request.payload.runId, state: finalState,
+      provider: request.payload.provider, kind: request.payload.kind,
+      checks: inspected?.checks ?? [], candidateCommit: run?.candidateCommit ?? null } };
+  }
+
+  /** @param {Record<string,any>} command */
+  async function cancelCli(command) {
+    const controller = activeCli.get(command.runId);
+    if (!controller) throw new Error("実行中のCLI processを確認できません。再起動後は自動取消しません");
+    const saved = await execute({ ...command, type: "cli.cancel_request" });
+    controller.cancel();
+    return saved;
+  }
+
+  /** Close an unresolved or stop-unconfirmed run only after Hub rechecks the recorded pid and target Git.
+   * History is kept; the run's generation still needs a reopen before another candidate run.
+   * @param {Record<string,any>} command
+   */
+  async function recoverCli(command) {
+    return execute({ ...command, type: "cli.run_recover" });
+  }
+
   /** @param {Record<string,any>} command */
   async function acceptCandidate(command) {
     const requested = await execute({ ...command, type: "task.accept_request" });
@@ -661,8 +1052,9 @@ export function createPocService(config) {
         evidenceSha256: check.evidenceSha256, source: check.source })),
       checkEvidence: { path: "docs/check-evidence.json", sha256: sha(evidenceBody) },
       g3: { result: "omitted", reason: "fixed synthetic PoC policy; maximum L3", level: "L3" },
-      unverified: ["independent G3 judgement", "real CLI execution", "enterprise acceptance",
-        "general-purpose SAST and dependency vulnerability scanning"],
+      unverified: ["independent G3 judgement", ...(inspected.payload.mode === "live" ?
+        ["AI-authored Red test and AI Refactor", "independent verification of subscription billing settings"] :
+        ["real CLI execution"]), "enterprise acceptance", "general-purpose SAST and dependency vulnerability scanning"],
       policySha256: localPolicySha256 };
     const body = JSON.stringify(evidence, null, 2) + "\n";
     await mkdir(join(worktree, "docs"), { recursive: true });
@@ -730,5 +1122,6 @@ export function createPocService(config) {
       targetCommit: head(fixture.repo), baseCommit: command.targetCommit, sha256: sha(body) });
   }
 
-  return { initialize, list, detail, execute, runFake, acceptCandidate, runIntegration, prepareDeliverables };
+  return { initialize, list, detail, execute, runFake, confirmSubscription, runCli, cancelCli,
+    recoverCli, acceptCandidate, runIntegration, prepareDeliverables };
 }

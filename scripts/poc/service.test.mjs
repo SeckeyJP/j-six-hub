@@ -6,7 +6,9 @@ import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPocService } from "./service.mjs";
+import { readLedger } from "./ledger.mjs";
 import { localPolicySha256 } from "./policy.mjs";
+import { syntheticGreenCode } from "./fake-runner.mjs";
 
 const processDefinition = JSON.parse(readFileSync(join(process.cwd(), ".cache/process.json"), "utf8"));
 /** @type {string[]} */
@@ -21,7 +23,8 @@ function git(repo, args) {
   }).trim();
 }
 
-async function fixture() {
+/** @param {{cli?:boolean,beforeAuth?:()=>Promise<void>,beforeWorkload?:(input:any)=>Promise<void>,stopUnconfirmed?:boolean,helperSpawnFails?:boolean,processAlive?:(pid:number)=>boolean}} [options] */
+async function fixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), "jsix-service-"));
   roots.push(root);
   const repo = join(root, "fixture");
@@ -48,11 +51,40 @@ async function fixture() {
   for (const [path, body] of Object.entries(content)) await writeFile(join(repo, path), body);
   git(repo, ["add", "."]); git(repo, ["commit", "-qm", "baseline"]);
   const commit = git(repo, ["rev-parse", "HEAD"]);
+  let cli;
+  /** @type {any[]} */ const cliCalls = [];
+  if (options.cli) {
+    const codex = join(root, "codex"); const claude = join(root, "claude"); const hook = join(root, "hook.json");
+    await writeFile(codex, "fixed executable\n"); await writeFile(claude, "fixed executable\n"); await writeFile(hook, "fixed hook\n");
+    cli = { executables: { codex, claude }, controls: { files: [{ path: hook, sha256: hash("fixed hook\n") }], codexTrusted: true },
+      env: {}, home: root, runProcess(/** @type {any} */ input) {
+        cliCalls.push(input);
+        const provider = input.executable.endsWith("codex") ? "codex" : "claude";
+        const first = input.args[0];
+        let promise;
+        if (first === "--version" && options.helperSpawnFails) promise = Promise.reject(new Error("spawn EACCES"));
+        else if (first === "--version") promise = Promise.resolve({ code: 0, signal: null,
+          stdout: `${provider} 0.test`, stderr: "", overflow: false, timedOut: false, cancelled: false });
+        else if (first === "login" || first === "auth") promise = (async () => { await options.beforeAuth?.(); return {
+          code: 0, signal: null, stdout: provider === "codex" ? "Logged in using ChatGPT" : JSON.stringify({ loggedIn: true,
+            authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }),
+          stderr: "", overflow: false, timedOut: false, cancelled: false }; })();
+        else promise = (async () => { await input.onStart?.(12345); if (input.input.includes("TASK-001")) {
+          await writeFile(join(input.cwd, "src/approval.mjs"), syntheticGreenCode);
+        } await options.beforeWorkload?.(input); const summary = JSON.stringify({ status: "ok", file: "src/approval.mjs", hook: "denied" });
+        const stdout = provider === "codex" ?
+          `${JSON.stringify({ type: "thread.started", thread_id: "t-1" })}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: summary } })}\n{"type":"item.completed","item":{"type":"command_execution","command":"git config --list","status":"denied","exit_code":1,"aggregated_output":"blocked by PreToolUse"}}\n{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n` :
+          `${JSON.stringify({ type: "system", session_id: "s-1" })}\n{"type":"hook_response","hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git config --list"},"decision":"deny"}\n${JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "s-1", result: summary })}\n`;
+        return { code: 0, signal: null, stdout,
+          stderr: "", overflow: false, timedOut: false, cancelled: false, stopUnconfirmed: !!options.stopUnconfirmed }; })();
+        return { promise, cancel() {} };
+      } };
+  }
   const service = createPocService({ ledgerRoot, process: processDefinition, fixtures: {
     synthetic: { repo, repoId: "synthetic" },
-  } });
+  }, cli, processAlive: options.processAlive });
   await service.initialize();
-  return { repo, ledgerRoot, commit, content, service };
+  return { repo, ledgerRoot, commit, content, service, cliCalls, cli };
 }
 
 /** @param {string} body */
@@ -61,7 +93,248 @@ const hash = (body) => createHash("sha256").update(body).digest("hex");
 const common = (head, projectId, generation, targetCommit) => ({ expectedHead: head, projectId,
   generation, targetCommit, policySha256: localPolicySha256 });
 
+function deferred() {
+  /** @type {()=>void} */ let resolve = () => {};
+  const promise = new Promise((done) => { resolve = () => done(undefined); });
+  return { promise, resolve };
+}
+
+/** @param {any} service @param {string} commit @param {Record<string,string>} content @param {string|null=} expectedHead */
+async function advanceToP4(service, commit, content, expectedHead = null) {
+  let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
+    expectedHead, targetCommit: commit, policySha256: localPolicySha256 });
+  const id = result.project.projectId;
+  const phases = /** @type {Record<string,[string,string][]>} */ ({
+    P0: [["constitution", "constitution.md"]],
+    P1: [["requirement_spec", "requirement.md"], ["business_flow_prototype", "flow.md"]],
+    P2: [["design_spec", "design.md"], ["adr", "adr.md"], ["working_prototype", "prototype.md"], ["properties", "properties.md"]],
+    P3: [["task_list", "tasks.md"], ["task_definition", "task.md"]],
+  });
+  for (const phase of ["P0", "P1", "P2", "P3"]) {
+    for (const [artifactId, path] of phases[phase] ?? []) result = await service.execute({ type: "artifact.submit",
+      ...common(result.head, id, 0, commit), artifactId, path, sha256: hash(content[path] ?? "") });
+    if (phase !== "P0") {
+      result = await service.execute({ type: "review.request", ...common(result.head, id, 0, commit) });
+      result = await service.execute({ type: "decision.record", ...common(result.head, id, 0, commit),
+        outcome: "approved", role: phase === "P1" ? "customer" : phase === "P2" ? "architect" : "gatekeeper",
+        reason: "Synthetic CLI setup", expiresAt: "2099-01-01T00:00:00.000Z" });
+    }
+    result = await service.execute({ type: "phase.transition", ...common(result.head, id, 0, commit) });
+  }
+  return result;
+}
+
 describe("localhost service commands", () => {
+  it("runs one smoke and one live edit with single-use confirmations and real Hub inspection", async () => {
+    const { service, commit, content, cliCalls, ledgerRoot } = await fixture({ cli: true });
+    let result = await advanceToP4(service, commit, content);
+    const id = result.project.projectId;
+    await expect(service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" }))
+      .rejects.toThrow(/確認/);
+    expect(cliCalls).toHaveLength(0);
+    result = await service.confirmSubscription({ ...common(result.head, id, 0, commit), provider: "codex" });
+    const smoke = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(smoke.cliRun.state).toBe("succeeded");
+    await expect(service.runCli({ ...common(smoke.head, id, 0, commit), provider: "codex", kind: "edit" }))
+      .rejects.toThrow(/単回使用/);
+    result = await service.confirmSubscription({ ...common(smoke.head, id, 0, commit), provider: "codex" });
+    const edited = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "edit" });
+    expect(edited.cliRun.state).toBe("succeeded");
+    expect(edited.cliRun.checks).toHaveLength(15);
+    expect(edited.cliRun.checks.filter((item) => item.result !== "passed")
+      .map((item) => ({ id: item.id, result: item.result, output: item.evidence.output }))).toEqual([]);
+    expect(edited.project.run?.mode).toBe("live");
+    expect(edited.project.run?.accepted).toBe(false);
+    expect(edited.project.cli.runs.map((item) => `${item.provider}/${item.kind}/${item.state}`))
+      .toEqual(["codex/smoke/succeeded", "codex/edit/succeeded"]);
+    const logPath = join(ledgerRoot, "private-runs", edited.cliRun.runId, "events.log");
+    const manifest = JSON.parse(readFileSync(join(ledgerRoot, "private-runs", edited.cliRun.runId, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({ schemaVersion: 1, provider: "codex", kind: "edit",
+      preflight: { spawnAllowed: true, authMethod: "chatgpt", controls: "matched" },
+      process: { eventValidation: null, stopUnconfirmed: false }, result: { state: "succeeded" } });
+    expect(manifest.startRecordId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(manifest.promptSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(manifest.preflight.helpers.map((/** @type {any} */ item) => [item.args, item.exitCode]))
+      .toEqual([[["--version"], 0], [["login", "status"], 0]]);
+    const log = readFileSync(logPath);
+    await unlink(logPath);
+    const missingEvidence = await service.detail(id);
+    expect(missingEvidence.project.cli.runs.at(-1)?.state).toBe("evidence_unknown");
+    expect(missingEvidence.project.missing).toContain(`cli-evidence:${edited.cliRun.runId}:evidence_unknown`);
+    await writeFile(logPath, log, { mode: 0o600 });
+    await expect(service.runCli({ ...common(edited.head, id, 0, commit), provider: "codex", kind: "edit" }))
+      .rejects.toThrow(/回数上限|確認/);
+  }, 300_000);
+
+  it("keeps the manifest and ledger result when a preflight helper cannot be spawned", async () => {
+    const { service, commit, content, cliCalls, ledgerRoot } = await fixture({ cli: true, helperSpawnFails: true });
+    let result = await advanceToP4(service, commit, content); const id = result.project.projectId;
+    result = await service.confirmSubscription({ ...common(result.head, id, 0, commit), provider: "codex" });
+    const held = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(held.cliRun.state).toBe("held");
+    expect(cliCalls.map((call) => call.args[0])).toEqual(["--version"]);
+    const manifest = JSON.parse(readFileSync(join(ledgerRoot, "private-runs", held.cliRun.runId, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({ provider: "codex", kind: "smoke", startRecordId: null, process: null,
+      preflight: { spawnAllowed: false, reason: "helper-spawn-or-wait-failed" },
+      result: { state: "held", stopReason: "helper-spawn-or-wait-failed", candidateCommit: null } });
+    expect(manifest.preflight.helpers).toHaveLength(1);
+    expect(manifest.preflight.helpers[0]).toMatchObject({ args: ["--version"], error: "spawn-or-wait-failed", exitCode: null, outputBytes: 0 });
+    expect(Object.keys(manifest.preflight.helpers[0])).not.toContain("stdout");
+    const ledger = await readLedger(ledgerRoot);
+    expect(ledger.records.at(-1)).toMatchObject({ kind: "cli.run_finished", payload: { runId: held.cliRun.runId,
+      state: "held", stopReason: "helper-spawn-or-wait-failed", manifestSha256: hash(readFileSync(join(ledgerRoot, "private-runs", held.cliRun.runId, "manifest.json"), "utf8")) } });
+    expect(held.project.cli.runs.map((item) => `${item.provider}/${item.kind}/${item.state}`)).toEqual(["codex/smoke/held"]);
+  }, 300_000);
+
+  it("rejects a read-only smoke that commits a repository change", async () => {
+    const { service, commit, content } = await fixture({ cli: true, async beforeWorkload(input) {
+      if (!input.input.includes("TASK-001")) {
+        await writeFile(join(input.cwd, "src/approval.mjs"), "export function approve() { return true; }\n");
+        git(input.cwd, ["add", "src/approval.mjs"]); git(input.cwd, ["commit", "-qm", "forbidden smoke change"]);
+      }
+    } });
+    let result = await advanceToP4(service, commit, content); const id = result.project.projectId;
+    result = await service.confirmSubscription({ ...common(result.head, id, 0, commit), provider: "codex" });
+    const smoke = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(smoke.cliRun.state).toBe("inspection_failed");
+    expect(smoke.project.cli.runs.at(-1)?.stopReason).toMatch(/対象commit/);
+  }, 120_000);
+
+  it("keeps one global dispatch slot and reconstructs a pending run after restart", async () => {
+    const gate = deferred();
+    const { service, commit, content, cliCalls, ledgerRoot, repo, cli } = await fixture({ cli: true,
+      beforeWorkload: () => gate.promise });
+    let current = await advanceToP4(service, commit, content); const id = current.project.projectId;
+    let second = await advanceToP4(service, commit, content, current.head); const secondId = second.project.projectId;
+    current = await service.detail(id);
+    current = await service.confirmSubscription({ ...common(current.head, id, 0, commit), provider: "codex" });
+    const running = service.runCli({ ...common(current.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    try {
+      await vi.waitFor(() => expect(cliCalls.filter((call) => call.args[0] === "exec")).toHaveLength(1), { timeout: 20_000 });
+      const restored = createPocService({ ledgerRoot, process: processDefinition,
+        fixtures: { synthetic: { repo, repoId: "synthetic" } }, cli });
+      await restored.initialize();
+      const pending = await restored.detail(id);
+      expect((await service.detail(id)).project.cli.runs.at(-1)?.state).toBe("started");
+      expect(pending.project.cli.runs.at(-1)?.state).toBe("unknown");
+      expect(pending.project.cli.runs.at(-1)?.stopReason).toMatch(/停止・結果を照合/);
+      await expect(restored.cancelCli({ ...common(pending.head, id, 0, commit),
+        runId: pending.project.cli.runs.at(-1)?.runId })).rejects.toThrow(/確認できません/);
+      second = await restored.detail(secondId);
+      await expect(restored.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" }))
+        .rejects.toThrow(/未確定/);
+      expect(cliCalls.filter((call) => call.args[0] === "-p")).toHaveLength(0);
+    } finally { gate.resolve(); }
+    expect((await running).cliRun.state).toBe("succeeded");
+  }, 150_000);
+
+  it("recovers a restarted unresolved run only after Hub rechecks the recorded process and target Git", async () => {
+    const gate = deferred();
+    const { service, commit, content, cliCalls, ledgerRoot, repo, cli } = await fixture({ cli: true,
+      beforeWorkload: () => gate.promise });
+    let current = await advanceToP4(service, commit, content); const id = current.project.projectId;
+    let second = await advanceToP4(service, commit, content, current.head); const secondId = second.project.projectId;
+    current = await service.detail(id);
+    current = await service.confirmSubscription({ ...common(current.head, id, 0, commit), provider: "codex" });
+    const running = service.runCli({ ...common(current.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    let alive = true;
+    const restored = createPocService({ ledgerRoot, process: processDefinition,
+      fixtures: { synthetic: { repo, repoId: "synthetic" } }, cli, processAlive: () => alive });
+    try {
+      await vi.waitFor(() => expect(cliCalls.filter((call) => call.args[0] === "exec")).toHaveLength(1), { timeout: 20_000 });
+      await restored.initialize();
+      const pending = await restored.detail(id);
+      const runId = pending.project.cli.runs.at(-1)?.runId;
+      expect(pending.project.cli.runs.at(-1)?.state).toBe("unknown");
+      const recover = { ...common(pending.head, id, 0, commit), runId, reason: "Synthetic restart: pid gone, worktree kept" };
+      await expect(service.recoverCli({ ...recover, processStopConfirmed: true, externalEffectsReviewed: true }))
+        .rejects.toThrow(/実行中、または解消済み/);
+      await expect(restored.recoverCli({ ...recover, processStopConfirmed: true })).rejects.toThrow(/確認結果/);
+      await expect(restored.recoverCli({ ...recover, processStopConfirmed: true, externalEffectsReviewed: true }))
+        .rejects.toThrow(/まだ存在/);
+      await expect(restored.execute({ type: "phase.reopen", ...common(pending.head, id, 0, commit), phase: "P3",
+        reason: "Synthetic reopen before recovery" })).rejects.toThrow(/未確定/);
+      alive = false;
+      const recovered = await restored.recoverCli({ ...recover, processStopConfirmed: true, externalEffectsReviewed: true });
+      const run = recovered.project.cli.runs.find((/** @type {any} */ item) => item.runId === runId);
+      expect(run).toMatchObject({ state: "recovered", recoveredFrom: "unresolved" });
+      expect(run?.stopReason).toMatch(/pid gone/);
+      expect(recovered.project.missing).toContain(`cli-evidence:${runId}:recovered`);
+      expect(recovered.project.canTransition).toBe(false);
+      const ledger = await readLedger(ledgerRoot);
+      expect(ledger.records.at(-1)).toMatchObject({ kind: "cli.run_recovered", payload: { priorState: "unresolved",
+        processCheck: "recorded-pid-not-running", pid: 12345, worktree: { exists: true, head: commit, dirty: false },
+        target: { commit, clean: true } } });
+      await expect(restored.recoverCli({ ...recover, expectedHead: recovered.head,
+        processStopConfirmed: true, externalEffectsReviewed: true })).rejects.toThrow(/解消済み/);
+    } finally { gate.resolve(); }
+    await expect(running).rejects.toThrow(/不正または重複/);
+    second = await restored.detail(secondId);
+    second = await restored.confirmSubscription({ ...common(second.head, secondId, 0, commit), provider: "claude" });
+    const next = await restored.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" });
+    expect(next.cliRun.state).toBe("succeeded");
+    const reopened = await restored.execute({ type: "phase.reopen", ...common(next.head, id, 0, commit), phase: "P3",
+      reason: "New generation after recorded recovery" });
+    expect(reopened.project).toMatchObject({ phase: "P3", generation: 1 });
+    expect(reopened.project.cli.runs).toHaveLength(0);
+    expect(reopened.project.missing.some((/** @type {string} */ item) => item.startsWith("cli-evidence:"))).toBe(false);
+  }, 300_000);
+
+  it("keeps a stop-unconfirmed run visible after reopen until recovery releases the global hold", async () => {
+    let alive = true;
+    const { service, commit, content, cliCalls } = await fixture({ cli: true, stopUnconfirmed: true,
+      processAlive: () => alive });
+    let current = await advanceToP4(service, commit, content); const id = current.project.projectId;
+    let second = await advanceToP4(service, commit, content, current.head); const secondId = second.project.projectId;
+    current = await service.detail(id);
+    current = await service.confirmSubscription({ ...common(current.head, id, 0, commit), provider: "codex" });
+    const stopped = await service.runCli({ ...common(current.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(stopped.cliRun.state).toBe("stop_unconfirmed");
+    const runId = stopped.cliRun.runId;
+    current = await service.execute({ type: "phase.reopen", ...common(stopped.head, id, 0, commit), phase: "P3",
+      reason: "Synthetic reopen with an unconfirmed stop" });
+    expect(current.project.cli.runs).toMatchObject([{ runId, state: "stop_unconfirmed", generation: 0 }]);
+    expect(current.project.missing).toContain(`cli-evidence:${runId}:stop_unconfirmed`);
+    second = await service.detail(secondId);
+    second = await service.confirmSubscription({ ...common(second.head, secondId, 0, commit), provider: "claude" });
+    await expect(service.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" }))
+      .rejects.toThrow(/回数上限/);
+    current = await service.detail(id);
+    const recover = { ...common(current.head, id, 1, commit), runId, processStopConfirmed: true,
+      externalEffectsReviewed: true, reason: "Process group checked after timeout" };
+    await expect(service.recoverCli(recover)).rejects.toThrow(/まだ存在/);
+    alive = false;
+    current = await service.recoverCli(recover);
+    expect(current.project).toMatchObject({ phase: "P3", generation: 1 });
+    expect(current.project.cli.runs).toHaveLength(0);
+    expect(current.project.missing.some((/** @type {string} */ item) => item.startsWith("cli-evidence:"))).toBe(false);
+    second = await service.detail(secondId);
+    second = await service.confirmSubscription({ ...common(second.head, secondId, 0, commit), provider: "claude" });
+    const callsBefore = cliCalls.length;
+    await expect(service.runCli({ ...common(second.head, secondId, 0, commit), provider: "claude", kind: "smoke" }))
+      .resolves.toMatchObject({ cliRun: { state: "stop_unconfirmed" } });
+    expect(cliCalls.length).toBeGreaterThan(callsBefore);
+  }, 300_000);
+
+  it("blocks project reopen and detects an external HEAD change before workload spawn", async () => {
+    const gate = deferred();
+    const { service, commit, content, cliCalls, repo } = await fixture({ cli: true, beforeAuth: () => gate.promise });
+    let current = await advanceToP4(service, commit, content); const id = current.project.projectId;
+    current = await service.confirmSubscription({ ...common(current.head, id, 0, commit), provider: "codex" });
+    const pendingRun = service.runCli({ ...common(current.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    try {
+      await vi.waitFor(() => expect(cliCalls.filter((call) => call.args[0] === "login")).toHaveLength(1), { timeout: 20_000 });
+      const pending = await service.detail(id);
+      await expect(service.execute({ type: "phase.reopen", ...common(pending.head, id, 0, commit), phase: "P3",
+        reason: "Synthetic change during preflight" })).rejects.toThrow(/未確定/);
+      expect(cliCalls.filter((call) => call.args[0] === "exec")).toHaveLength(0);
+      await writeFile(join(repo, "external-change.md"), "changed during preflight\n");
+      git(repo, ["add", "external-change.md"]); git(repo, ["commit", "-qm", "external change during preflight"]);
+    } finally { gate.resolve(); }
+    await expect(pendingRun).rejects.toThrow(/対象Git commit|変わりました/);
+    expect(cliCalls.filter((call) => call.args[0] === "exec")).toHaveLength(0);
+  }, 90_000);
+
   it("replays a synthetic project through P0 to P4 with real Git evidence", async () => {
     const { service, commit, content, ledgerRoot, repo } = await fixture();
     let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
@@ -312,7 +585,7 @@ describe("localhost service commands", () => {
   }, 60_000);
 
   it("records a fixed fake TDD run and real G1/G2 checks before candidate acceptance", async () => {
-    const { service, commit, content, repo, ledgerRoot } = await fixture();
+    const { service, commit, content, repo, ledgerRoot } = await fixture({ cli: true });
     let result = await service.execute({ type: "project.create", fixtureId: "synthetic",
       expectedHead: null, targetCommit: commit, policySha256: localPolicySha256 });
     const id = result.project.projectId;
@@ -337,6 +610,12 @@ describe("localhost service commands", () => {
       result = await service.execute({ type: "phase.transition", ...common(result.head, id, 0, commit) });
     }
     expect(result.project.phase).toBe("P4");
+    result = await service.confirmSubscription({ ...common(result.head, id, 0, commit), provider: "codex" });
+    const smoke = await service.runCli({ ...common(result.head, id, 0, commit), provider: "codex", kind: "smoke" });
+    expect(smoke.cliRun.state).toBe("succeeded");
+    const smokeManifest = join(ledgerRoot, "private-runs", smoke.cliRun.runId, "manifest.json");
+    const smokeManifestBody = readFileSync(smokeManifest);
+    result = smoke;
     const generated = await service.runFake({ ...common(result.head, id, 0, commit) });
     expect(generated.run.mode).toBe("fake");
     expect(generated.run.checks).toHaveLength(15);
@@ -392,7 +671,12 @@ describe("localhost service commands", () => {
     git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "restore quality evidence"]);
     changedEvidence = await service.detail(id);
     expect(changedEvidence.project.missing.some((reason) => reason.startsWith("passed-check:"))).toBe(false);
-    current = /** @type {{head:string,project:any}} */ (changedEvidence);
+    await unlink(smokeManifest);
+    let missingCliEvidence = await service.detail(id);
+    await expect(service.prepareDeliverables(common(missingCliEvidence.head, id, 0, missingCliEvidence.project.targetCommit)))
+      .rejects.toThrow(/証跡/);
+    await writeFile(smokeManifest, smokeManifestBody, { mode: 0o600 });
+    current = /** @type {{head:string,project:any}} */ (await service.detail(id));
     const delivery = await service.prepareDeliverables(common(current.head, id, 0, current.project.targetCommit));
     current = await service.execute({ type: "artifact.submit", ...common(delivery.head, id, 0, delivery.project.targetCommit),
       artifactId: "reverse_generated_docs", path: "docs/reverse-generated.md",
@@ -401,6 +685,15 @@ describe("localhost service commands", () => {
     current = await service.execute({ type: "decision.record", ...common(current.head, id, 0, current.project.targetCommit),
       outcome: "approved", role: "customer", reason: "Synthetic deliverable review only",
       expiresAt: "2099-01-01T00:00:00.000Z" });
+    expect(current.project.canComplete).toBe(true);
+    await unlink(smokeManifest);
+    missingCliEvidence = await service.detail(id);
+    expect(missingCliEvidence.project.canComplete).toBe(false);
+    expect(missingCliEvidence.project.missing).toContain(`cli-evidence:${smoke.cliRun.runId}:evidence_unknown`);
+    await expect(service.execute({ type: "phase.complete",
+      ...common(missingCliEvidence.head, id, 0, missingCliEvidence.project.targetCommit) })).rejects.toThrow(/完了条件/);
+    await writeFile(smokeManifest, smokeManifestBody, { mode: 0o600 });
+    current = /** @type {{head:string,project:any}} */ (await service.detail(id));
     expect(current.project.canComplete).toBe(true);
     current = await service.execute({ type: "phase.complete", ...common(current.head, id, 0, current.project.targetCommit) });
     expect(current.project.completed).toBe(true);
@@ -441,5 +734,5 @@ describe("localhost service commands", () => {
     current = await restored.execute({ type: "phase.transition",
       ...common(current.head, id, 1, current.project.targetCommit) });
     expect(current.project.phase).toBe("P5");
-  }, 720_000);
+  }, 1_200_000);
 });

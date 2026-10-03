@@ -79,9 +79,9 @@ export async function startPocServer({ service, port = 0 }) {
       send(res, 200, html, "text/html; charset=utf-8", { "Set-Cookie": `jsix_poc=${session}; HttpOnly; SameSite=Strict; Path=/` });
       return;
     }
-    if (req.method === "GET" && ["/workbench.js", "/workbench.css"].includes(pathname)) {
+    if (req.method === "GET" && ["/workbench.js", "/workbench.css", "/run-state.mjs"].includes(pathname)) {
       const content = await readFile(join(here, pathname.slice(1)), "utf8");
-      send(res, 200, content, pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8");
+      send(res, 200, content, pathname.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8");
       return;
     }
     const cookie = (req.headers.cookie ?? "").split(";").map((part) => part.trim())
@@ -101,9 +101,15 @@ export async function startPocServer({ service, port = 0 }) {
       const body = req.method === "POST" ? await jsonBody(req) : null;
       const command = body ? mappedCommand(pathname, body) : null;
       if (command) { send(res, 200, await service.execute(command)); return; }
-      const action = /^\/api\/projects\/([0-9a-f-]{36})\/(fake-runs|accept-candidates|integration|deliverables)$/.exec(pathname);
+      const action = /^\/api\/projects\/([0-9a-f-]{36})\/(fake-runs|accept-candidates|integration|deliverables|cli-confirm|cli-smoke|cli-edit|cli-cancel|cli-recover)$/.exec(pathname);
       if (body && action) {
         const input = { ...body, projectId: action[1] };
+        if (action[2] === "cli-confirm") { send(res, 200, await service.confirmSubscription(input)); return; }
+        if (action[2] === "cli-smoke" || action[2] === "cli-edit") {
+          send(res, 200, await service.runCli({ ...input, kind: action[2] === "cli-smoke" ? "smoke" : "edit" })); return;
+        }
+        if (action[2] === "cli-cancel") { send(res, 200, await service.cancelCli(input)); return; }
+        if (action[2] === "cli-recover") { send(res, 200, await service.recoverCli(input)); return; }
         const operation = action[2] === "fake-runs" ? service.runFake :
           action[2] === "accept-candidates" ? service.acceptCandidate :
             action[2] === "integration" ? service.runIntegration : service.prepareDeliverables;

@@ -1,3 +1,5 @@
+import { canCancelCliRun, canRecoverCliRun, explainCliEvidence } from "/run-state.mjs";
+
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const byId = (id) => document.getElementById(id);
 let listing;
@@ -109,6 +111,9 @@ function renderActivity(project) {
     } else if (item.kind === "run") {
       append(row, element("strong", `${item.phase} 合成 ${item.mode} run · G1/G2 ${item.passed}/${item.total} 通過`),
         element("p", `run ${item.runId} · 候補 ${item.candidateCommit}`, "code"));
+    } else if (item.kind === "cli") {
+      append(row, element("strong", `${item.phase} ${item.provider} ${item.runKind}: ${item.state}`),
+        element("p", `run ${item.runId} · adapter ${item.adapterId}`, "code"));
     } else if (item.kind === "candidate") {
       append(row, element("strong", "P4 検査済み候補を受入れ"),
         element("p", `run ${item.runId} · 証跡commit ${item.targetCommit}`, "code"));
@@ -150,6 +155,8 @@ function renderMonitor() {
       append(history, element("summary", "判断・差戻し履歴を表示"), renderActivity(project));
       append(card, history);
     }
+    if (project.cli?.runs?.length) append(card, element("p",
+      `CLI: ${project.cli.runs.map((item) => `${item.provider}/${item.kind}=${item.state}`).join("、")}`, "code"));
     append(root, card);
   }
 }
@@ -173,8 +180,33 @@ function explainMissing(reason, project) {
   if (reason === "target:commit-changed") return "対象Git commitが提出時から変わりました";
   if (reason === "target:baseline-unverified") return "基準commitの系列を照合できません";
   if (reason === "policy:changed") return "PoC方針版が変わりました";
+  if (reason.startsWith("cli-evidence:")) return explainCliEvidence(reason);
   if (reason === "completion:target-changed-reopen-required") return "完了後に対象commitが変わりました。Phaseを差し戻して再確認してください";
   return reason;
+}
+
+function cliRunList(project, items) {
+  const runs = element("ul");
+  for (const item of items) {
+    const row = element("li", `${item.provider} / ${item.kind}: ${item.state} · 世代 ${item.generation} · run ${item.runId}`, "code");
+    if (item.stopReason) row.append(" ", element("span", `理由: ${item.stopReason}`, "blocked"));
+    if (canCancelCliRun(item.state)) {
+      const cancel = element("button", "取消を要求"); cancel.type = "button";
+      cancel.addEventListener("click", async () => { try { await command("cli-cancel", { ...common(project), runId: item.runId }); await refresh(); }
+        catch (error) { showStatus(error.message, true); } }); row.append(" ", cancel);
+    }
+    if (canRecoverCliRun(item.state)) {
+      const recover = form("停止・外部作用を照合して復旧", "復旧を記録", async (data) => command("cli-recover",
+        { ...common(project), runId: item.runId, reason: data.get("reason"),
+          processStopConfirmed: data.get("stopped") === "yes", externalEffectsReviewed: data.get("effects") === "yes" }));
+      field(recover.node, "CLI process・補助processが残っていないことを確認済み", "stopped", "yes", "checkbox").checked = false;
+      field(recover.node, "残存worktree・対象repo・外部作用を照合済み", "effects", "yes", "checkbox").checked = false;
+      field(recover.node, "照合結果と判断理由", "reason", "");
+      append(recover.node, recover.button); row.append(recover.node);
+    }
+    append(runs, row);
+  }
+  return runs;
 }
 
 function renderDetail() {
@@ -196,10 +228,30 @@ function renderDetail() {
   else append(missing, element("li", project.completed ? "対象版は完了記録と一致しています。" : "現在の遷移条件が揃っています。"));
   append(root, missingTitle, missing);
   if (project.completed) append(root, element("p", "合成案件の一巡が完了しました。正式な顧客検収ではありません。"));
+  const recoverable = project.cli?.runs.filter((item) => canRecoverCliRun(item.state)) ?? [];
+  if (recoverable.length && (project.completed || project.phase !== "P4")) {
+    append(root, element("h3", "CLI runの停止照合"), cliRunList(project, recoverable));
+  }
   if (!project.completed) {
   if (project.phase === "P4") {
     append(root, element("h3", "合成タスクの TDD 実行"),
-      element("p", "固定された模擬作業者が候補を作り、Hub が G1/G2 を実行します。AI CLI はこの段階では起動しません。"));
+      element("p", "固定したfake経路、またはsubscription認証のCodex／Claude Code経路で候補を作り、HubがG1/G2を実行します。"));
+    if (project.cli?.available) {
+      const cli = element("section"); append(cli, element("h3", "subscription CLI 中央実行"),
+        element("p", "各providerは読取smoke 1回、編集1回までです。account画面で利用枠があり、追加クレジット／extra usageを使わない設定を確認してから記録してください。確認は5分・単回のoperator assertionです。"));
+      const confirm = form("課金条件を直前確認", "確認を記録", async (data) =>
+        command("cli-confirm", { ...common(project), provider: data.get("provider") }));
+      select(confirm.node, "provider", "provider", [["codex", "Codex (ChatGPT)"], ["claude", "Claude Code"]]);
+      const checked = field(confirm.node, "利用枠あり・追加クレジット無効をaccount画面で確認済み", "confirmed", "yes", "checkbox");
+      checked.checked = false; append(confirm.node, confirm.button); append(cli, confirm.node);
+      const start = form("固定runを開始", "実行", async (data) => command(data.get("kind") === "smoke" ? "cli-smoke" : "cli-edit",
+        { ...common(project), provider: data.get("provider") }));
+      select(start.node, "provider", "provider", [["codex", "Codex"], ["claude", "Claude Code"]]);
+      select(start.node, "run", "kind", [["smoke", "読取smoke"], ["edit", "小さな合成編集"]]);
+      append(start.node, start.button); append(cli, start.node);
+      const runs = cliRunList(project, project.cli.runs);
+      append(cli, runs); append(root, cli);
+    }
     if (project.run?.runId) {
       const mode = project.run.mode === "fake-revalidation" ? "差し戻し再検証" : "初回 TDD";
       append(root, element("p", `run ${project.run.runId} · ${mode} · 候補 ${project.run.candidateCommit} · ${project.run.accepted ? "受入れ済み" : "受入れ待ち"}`, "code"));
